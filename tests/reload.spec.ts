@@ -29,23 +29,25 @@ function generation(
 }
 
 describe('profile reload runtime', () => {
-  it('captures launch-only overlays after the exact profile-owned prefix', () => {
+  it('captures launch-only overlays after a profile prefix mutated during Include application', () => {
     const initial = generation(
       ['base', 'tui'],
       [{ insert: [{ id: 'base' }] }],
-      [{ id: 'tui', config: { title: 'custom' } }],
+      [{ id: 'base', config: { title: 'custom' } }],
       [{ id: 'tools', config: { mode: 'native' } }],
     )
     const launcher = [{ id: 'agent-presets', config: { roots: ['shipped'] } }]
     const mounted = [...profileOwnedPatches(initial), ...launcher] as never[]
+    const firstInsert = (mounted[0] as { insert: Array<{ config?: unknown }> }).insert[0]!
+    firstInsert.config = { title: 'custom' }
 
     const captured = captureLauncherPatches(mounted, initial)
 
     assert.deepEqual(captured, launcher)
     assert.notEqual(captured, launcher)
     assert.throws(
-      () => captureLauncherPatches([{ id: 'wrong' }] as never[], initial),
-      /mounted profile patches do not match/,
+      () => captureLauncherPatches([{ id: 'short' }] as never[], initial),
+      /mounted patch stack is shorter/,
     )
   })
 

@@ -51,20 +51,21 @@ export function profileOwnedPatches(generation: ProfileReloadGeneration): Profil
 }
 
 /**
- * Retain launch-only overlays after proving the mounted tree starts with the
- * profile layers loaded from disk. These overlays include `--patch` inputs and
- * launcher-owned hard overrides, and must survive every in-process reload.
+ * Retain launch-only overlays after the profile-owned patch count. Include
+ * applies later id patches directly to rows held by earlier `insert` patches,
+ * so the mounted prefix may already differ from a fresh disk parse even though
+ * both describe the same generation. The launcher preserves top-level patch
+ * order and count while mounting.
  */
 export function captureLauncherPatches(
   mounted: readonly ProfilePatch[],
   initial: ProfileReloadGeneration,
 ): ProfilePatch[] {
-  const profilePatches = profileOwnedPatches(initial)
-  const mountedPrefix = mounted.slice(0, profilePatches.length)
-  if (!isDeepStrictEqual(mountedPrefix, profilePatches)) {
-    throw new Error('tui reload: mounted profile patches do not match the on-disk profile generation')
+  const profilePatchCount = profileOwnedPatches(initial).length
+  if (mounted.length < profilePatchCount) {
+    throw new Error('tui reload: mounted patch stack is shorter than the on-disk profile generation')
   }
-  return structuredClone(mounted.slice(profilePatches.length))
+  return structuredClone(mounted.slice(profilePatchCount))
 }
 
 /** Reject a candidate that would replace the TUI or one of its active service providers. */
