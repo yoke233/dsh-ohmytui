@@ -12,14 +12,16 @@
   disabled: true
 
 - id: agent-loop
-  inject: [tuiStartup, conversationPersistenceGate]
+  inject: [tuiStartup, conversationPersistenceGate, agentDefaultModel]
   config:
     agents:
       - id: main
         sessionId: !!js ctx.tuiStartup.sessionId
         resumeSessionId: !!js ctx.tuiStartup.resumeSessionId
-        provider: deepseek-official
-        model: deepseek-v4-flash
+        # Resolve the saved user selection when each process starts instead of
+        # pinning every fresh session to the bundle's composition defaults.
+        provider: !!js ctx.agentDefaultModel.currentSelection().provider
+        model: !!js ctx.agentDefaultModel.currentSelection().model
         cwd: !!js process.cwd()
 
 - id: system-prompt

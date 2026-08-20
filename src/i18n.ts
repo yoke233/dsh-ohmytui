@@ -37,6 +37,7 @@ export type Messages = {
   helpThink: string
   helpNew: string
   helpResume: string
+  helpCopy: string
   helpDetails: string
   helpSkills: string
   helpSkillInvoke: string
@@ -50,6 +51,7 @@ export type Messages = {
   cmdThink: string
   cmdNew: string
   cmdResume: string
+  cmdCopy: string
   cmdDetails: string
   cmdSkills: string
   cmdMode: string
@@ -74,6 +76,8 @@ export type Messages = {
   noticeResumeFailed: string
   noticeResumeTimeout: string
   noticeModelSet: string
+  noticeCopySuccess: string
+  noticeCopyEmpty: string
   noticeThinkSet: string
   noticeThinkAlready: string
   noticeThinkUnknown: string
@@ -269,6 +273,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpThink: '切换当前模型的思考等级',
     helpNew: '新建会话',
     helpResume: '恢复持久化会话',
+    helpCopy: '复制最近一条助手回复',
     helpDetails: '查看会话诊断',
     helpSkills: '列出可用技能',
     helpSkillInvoke: '以指令方式调用技能',
@@ -282,6 +287,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdNew: '新建会话',
     cmdSettings: '打开可视化设置',
     cmdResume: '恢复持久化会话',
+    cmdCopy: '复制最近一条助手回复',
     cmdDetails: '查看会话诊断',
     cmdSkills: '列出可用技能',
 
@@ -305,6 +311,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeResumeFailed: '会话恢复失败：{error}',
     noticeResumeTimeout: '会话恢复超时，已取消本次恢复。',
     noticeModelSet: '模型已设为 {provider}/{model}。',
+    noticeCopySuccess: '已复制最近一条助手回复。',
+    noticeCopyEmpty: '当前会话还没有可复制的助手回复。',
     noticeThinkSet: '思考等级已切换为 {name}（{id}）。',
     noticeThinkAlready: '当前思考等级已是 {name}（{id}）。',
     noticeThinkUnknown: '当前模型不支持思考等级：{name}',
@@ -496,6 +504,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpThink: 'switch the current model reasoning effort',
     helpNew: 'start a new session',
     helpResume: 'resume a persisted session',
+    helpCopy: 'copy the latest assistant response',
     helpDetails: 'show session diagnostics',
     helpSkills: 'list available skills',
     helpSkillInvoke: 'invoke a skill as instructions',
@@ -508,6 +517,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdThink: 'Switch the current model reasoning effort',
     cmdNew: 'Start a new session',
     cmdResume: 'Resume a persisted session',
+    cmdCopy: 'Copy the latest assistant response',
     cmdDetails: 'Show session diagnostics',
     cmdSkills: 'List available skills',
 
@@ -532,6 +542,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeResumeFailed: 'Failed to resume session: {error}',
     noticeResumeTimeout: 'Session resume timed out and was cancelled.',
     noticeModelSet: 'Model set to {provider}/{model}.',
+    noticeCopySuccess: 'Copied the latest assistant response.',
+    noticeCopyEmpty: 'There is no assistant response to copy yet.',
     noticeThinkSet: 'Reasoning effort switched to {name} ({id}).',
     noticeThinkAlready: 'Reasoning effort is already {name} ({id}).',
     noticeThinkUnknown: 'The current model does not support reasoning effort: {name}',

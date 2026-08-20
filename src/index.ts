@@ -129,6 +129,7 @@ import {
   type ProviderDraft,
 } from './components/provider-form.ts'
 import { contentText } from './components/content.ts'
+import { latestAssistantText, osc52ClipboardSequence } from './clipboard.ts'
 import { displayInlineText, displayText } from './components/text.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
 import { hasConversationData, recordConversationPreset } from './session-lifecycle.ts'
@@ -1106,6 +1107,16 @@ export class Tui extends Service {
           }))
         } catch (error: unknown) {
           appendNotice(t('noticeSkillFailed', { name, error: errorChain(error) }), 'error')
+        }
+        return
+      }
+      if (line === '/copy' || line.startsWith('/copy ')) {
+        const text = latestAssistantText(current.session.events)
+        if (text === undefined) {
+          appendNotice(t('noticeCopyEmpty'), 'warning')
+        } else {
+          terminal.write(osc52ClipboardSequence(text))
+          appendNotice(t('noticeCopySuccess'), 'info')
         }
         return
       }
@@ -2518,6 +2529,7 @@ export class Tui extends Service {
           `/think [level] — ${t('helpThink')}`,
           `/new — ${t('helpNew')}`,
           `/resume — ${t('helpResume')}`,
+          `/copy — ${t('helpCopy')}`,
           `/details — ${t('helpDetails')}`,
           `/skills — ${t('helpSkills')}`,
           `/skill:<name> — ${t('helpSkillInvoke')}`,
@@ -2538,7 +2550,15 @@ export class Tui extends Service {
         images: readonly unknown[],
         signal: AbortSignal,
       ) => ReturnType<typeof ctx.commands.execute>
-      const execution = await executeCommand(current, line, [], new AbortController().signal)
+      // `execute` reads registry state through `this` (for example `this.view`).
+      // Keep the Cordis command service as the receiver after narrowing its type.
+      const execution = await executeCommand.call(
+        ctx.commands,
+        current,
+        line,
+        [],
+        new AbortController().signal,
+      )
       if (execution === undefined) {
         appendNotice(t('noticeUnknownCommand', {
           name: line.slice(1, line.indexOf(' ') === -1 ? undefined : line.indexOf(' ')),
@@ -2709,11 +2729,17 @@ export class Tui extends Service {
 
       const selectionFor = (target: Agent): ModelSelection => {
         const configured = ctx.agentDefaultModel.currentSelection()
-        const fallback: ModelSelection = {
-          provider: target.options.provider ?? configured.provider,
-          model: target.options.model ?? configured.model,
-          ...configured.reasoningEffort === undefined ? {} : { reasoningEffort: configured.reasoningEffort },
-        }
+        // A fresh Agent still carries the bundle's composition-time provider/model
+        // in target.options. Prefer the persisted user default until conversation
+        // data establishes a session-local route; resumed sessions are then
+        // resolved from their request header below.
+        const fallback: ModelSelection = hasConversationData(target.session.events)
+          ? {
+              provider: target.options.provider ?? configured.provider,
+              model: target.options.model ?? configured.model,
+              ...configured.reasoningEffort === undefined ? {} : { reasoningEffort: configured.reasoningEffort },
+            }
+          : configured
         return resolveSessionModelSelection(
           target.session.requestHeader(),
           fallback,
@@ -2722,7 +2748,7 @@ export class Tui extends Service {
       }
 
       // A historical session continues its last actual request route. A new
-      // session starts from the configured Agent route and persisted default effort.
+      // session starts from the persisted default selection.
       const initialSelection = selectionFor(liveAgent)
       const selectionRef: ModelSelectionRef = { current: initialSelection, assembled: undefined }
       offModelSelection = installModelSelection(liveAgent.ctx, selectionRef)
@@ -2795,6 +2821,7 @@ export class Tui extends Service {
           },
         },
         { name: 'new', description: t('cmdNew') },
+        { name: 'copy', description: t('cmdCopy') },
         {
           name: 'resume',
           description: t('cmdResume'),
@@ -3180,9 +3207,10 @@ export class Tui extends Service {
         ui.requestRender()
       })()
       ui.start()
-      // Report mouse wheel events (normal tracking + SGR encoding) so the
-      // transcript can page on scroll without sending legacy X10 sequences.
-      terminal.write('\x1b[?1000h\x1b[?1006h')
+      // Do not enable terminal mouse tracking here. Tracking turns drag events
+      // into application input and prevents native text selection/copy in
+      // Windows Terminal and other terminals. Transcript paging remains
+      // available through PageUp/PageDown while the terminal owns the mouse.
       warnIfFullAccess(liveAgent)
 
     }
@@ -3219,7 +3247,6 @@ export class Tui extends Service {
       stopSpinner()
       clearTimeout(noticeTimer)
       clearTimeout(exitArmTimer)
-      terminal.write('\x1b[?1006l\x1b[?1000l')
       ui.stop()
       terminal.stop()
     })

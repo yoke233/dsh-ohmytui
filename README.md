@@ -184,6 +184,7 @@ dsh --profile tui --resume <session-id>
 | `Ctrl+C` | 中断当前回合；2 秒内再次按下退出程序 |
 | `Ctrl+O` | 工具卡显示循环：折叠 → 展开 → 隐藏 |
 | `Ctrl+R` | 显示或隐藏思考块 |
+| 鼠标拖选 + `Ctrl+Shift+C` | 使用终端原生选择并复制文本（`Ctrl+C` 保留给中断/退出） |
 | `Tab` | 补全当前斜杠命令、参数或路径 |
 | `@` | 开始会话或文件引用补全 |
 
@@ -196,6 +197,7 @@ dsh --profile tui --resume <session-id>
 | `/think [level]` | 切换当前模型的思考等级；无参时循环切换 |
 | `/new` | 在当前项目、模型和权限模式下新建会话 |
 | `/resume [id]` | 列出或切换当前项目的持久化会话 |
+| `/copy` | 将最近一条助手回复复制到系统剪贴板 |
 | `/details` | 查看会话标题、目录、模型、agent、tokens 和 context |
 | `/mode [preset]` | 切换 dsh agent 组合；无参时循环切换 |
 | `/permission [preset]` | 切换沙箱和审批策略 |
