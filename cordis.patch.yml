@@ -111,6 +111,11 @@
     - id: tui-startup
       name: 'dsh-omp-tui/startup'
 
+    # Recompose the live profile after bundle installation without replacing
+    # the terminal process or the mounted TUI row.
+    - id: tui-reload
+      name: 'dsh-omp-tui/reload'
+
     # WeChat (iLink) bridge: remote control via the official Tencent WeChat
     # channel. Loads before the TUI so the TUI's user-questions provider can
     # delegate ask questions to WeChat through ctx.wechat.askWithFallback.

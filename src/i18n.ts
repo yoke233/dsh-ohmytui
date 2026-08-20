@@ -38,6 +38,7 @@ export type Messages = {
   helpNew: string
   helpResume: string
   helpCopy: string
+  helpReload: string
   helpDetails: string
   helpSkills: string
   helpSkillInvoke: string
@@ -52,6 +53,7 @@ export type Messages = {
   cmdNew: string
   cmdResume: string
   cmdCopy: string
+  cmdReload: string
   cmdDetails: string
   cmdSkills: string
   cmdMode: string
@@ -78,6 +80,10 @@ export type Messages = {
   noticeModelSet: string
   noticeCopySuccess: string
   noticeCopyEmpty: string
+  noticeReloading: string
+  noticeReloaded: string
+  noticeReloadBusy: string
+  noticeReloadFailed: string
   noticeThinkSet: string
   noticeThinkAlready: string
   noticeThinkUnknown: string
@@ -274,6 +280,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpNew: '新建会话',
     helpResume: '恢复持久化会话',
     helpCopy: '复制最近一条助手回复',
+    helpReload: '重新载入当前 Profile 中安装的插件',
     helpDetails: '查看会话诊断',
     helpSkills: '列出可用技能',
     helpSkillInvoke: '以指令方式调用技能',
@@ -288,6 +295,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdSettings: '打开可视化设置',
     cmdResume: '恢复持久化会话',
     cmdCopy: '复制最近一条助手回复',
+    cmdReload: '重新载入当前 Profile 中安装的插件',
     cmdDetails: '查看会话诊断',
     cmdSkills: '列出可用技能',
 
@@ -313,6 +321,10 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeModelSet: '模型已设为 {provider}/{model}。',
     noticeCopySuccess: '已复制最近一条助手回复。',
     noticeCopyEmpty: '当前会话还没有可复制的助手回复。',
+    noticeReloading: '正在重新载入 Profile 插件…',
+    noticeReloaded: 'Profile 插件已重新载入（新增 {added}，移除 {removed}）。',
+    noticeReloadBusy: '请等待当前回合结束后再重新载入插件。',
+    noticeReloadFailed: 'Profile 插件重新载入失败：{error}',
     noticeThinkSet: '思考等级已切换为 {name}（{id}）。',
     noticeThinkAlready: '当前思考等级已是 {name}（{id}）。',
     noticeThinkUnknown: '当前模型不支持思考等级：{name}',
@@ -505,6 +517,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpNew: 'start a new session',
     helpResume: 'resume a persisted session',
     helpCopy: 'copy the latest assistant response',
+    helpReload: 'reload plugins installed in the current profile',
     helpDetails: 'show session diagnostics',
     helpSkills: 'list available skills',
     helpSkillInvoke: 'invoke a skill as instructions',
@@ -518,6 +531,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdNew: 'Start a new session',
     cmdResume: 'Resume a persisted session',
     cmdCopy: 'Copy the latest assistant response',
+    cmdReload: 'Reload plugins installed in the current profile',
     cmdDetails: 'Show session diagnostics',
     cmdSkills: 'List available skills',
 
@@ -544,6 +558,10 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeModelSet: 'Model set to {provider}/{model}.',
     noticeCopySuccess: 'Copied the latest assistant response.',
     noticeCopyEmpty: 'There is no assistant response to copy yet.',
+    noticeReloading: 'Reloading profile plugins…',
+    noticeReloaded: 'Profile plugins reloaded ({added} added, {removed} removed).',
+    noticeReloadBusy: 'Wait for the current turn to finish before reloading plugins.',
+    noticeReloadFailed: 'Failed to reload profile plugins: {error}',
     noticeThinkSet: 'Reasoning effort switched to {name} ({id}).',
     noticeThinkAlready: 'Reasoning effort is already {name} ({id}).',
     noticeThinkUnknown: 'The current model does not support reasoning effort: {name}',

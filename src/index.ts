@@ -61,6 +61,7 @@ import {
   type UiMode,
 } from './config.ts'
 import type { TuiStartup } from './startup.ts'
+import type {} from './reload.ts'
 import { parseTuiPromptTemplate } from './prompt.ts'
 import { createTranslator, type MessageKey, type Translator } from './i18n.ts'
 import {
@@ -235,7 +236,7 @@ async function readGitBranch(cwd: string): Promise<string | undefined> {
 
 /** The terminal mode's plugin entry: mounts the whole UI in its constructor. */
 export class Tui extends Service {
-  static inject = ['tuiStartup', 'agents', 'tuiPrompt', 'commands', 'tokenMeter', 'llm', 'userQuestions', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
+  static inject = ['tuiStartup', 'tuiReload', 'agents', 'tuiPrompt', 'commands', 'tokenMeter', 'llm', 'userQuestions', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
   static Config = TuiConfigSchema
 
   /** Mount 后由 TUI 赋值：读取当前前台 agent。 */
@@ -403,12 +404,14 @@ export class Tui extends Service {
       switchAgent: ((id: SessionId) => Promise<void>) | undefined
       saveSelection: ((selection: ModelSelection) => Promise<void>) | undefined
       setReasoningEffort: ((effort: NonNullable<ModelSelection['reasoningEffort']>) => Promise<void>) | undefined
+      refreshCommands: (() => void) | undefined
       selectionRef: ModelSelectionRef | undefined
     } = {
       newAgent: undefined,
       switchAgent: undefined,
       saveSelection: undefined,
       setReasoningEffort: undefined,
+      refreshCommands: undefined,
       selectionRef: undefined,
     }
     let reasoningEffortCache: { route: string; efforts: readonly LlmReasoningEffortInfo[] } | undefined
@@ -1117,6 +1120,29 @@ export class Tui extends Service {
         } else {
           terminal.write(osc52ClipboardSequence(text))
           appendNotice(t('noticeCopySuccess'), 'info')
+        }
+        return
+      }
+      if (line === '/reload') {
+        if (current.status === 'running') {
+          appendNotice(t('noticeReloadBusy'), 'warning')
+          return
+        }
+        appendNotice(t('noticeReloading'), 'info')
+        try {
+          const result = await ctx.tuiReload.reload()
+          if (result.changed) {
+            handles.refreshCommands?.()
+            contextUsageCache.measuredAt = 0
+            rebuildChrome()
+            setStatus(current.status)
+          }
+          appendNotice(t('noticeReloaded', {
+            added: result.addedBundles.length,
+            removed: result.removedBundles.length,
+          }), 'info')
+        } catch (error: unknown) {
+          appendNotice(t('noticeReloadFailed', { error: errorChain(error) }), 'error')
         }
         return
       }
@@ -2530,6 +2556,7 @@ export class Tui extends Service {
           `/new — ${t('helpNew')}`,
           `/resume — ${t('helpResume')}`,
           `/copy — ${t('helpCopy')}`,
+          `/reload — ${t('helpReload')}`,
           `/details — ${t('helpDetails')}`,
           `/skills — ${t('helpSkills')}`,
           `/skill:<name> — ${t('helpSkillInvoke')}`,
@@ -2712,6 +2739,7 @@ export class Tui extends Service {
     // --- mount: run once the configured agent is live -------------------------
     let offEvent: (() => void) | undefined
     let offStatus: (() => void) | undefined
+    let offCommandsChange: (() => void) | undefined
     let offScheme: (() => void) | undefined
     let offModelSelection: (() => void) | undefined
     let offWechatOutput: (() => void) | undefined
@@ -2797,7 +2825,7 @@ export class Tui extends Service {
         label: `${theme.id} — ${theme.label}`,
         description: `${theme.scheme} · ${theme.description}`,
       }))
-      const commandEntries: SlashCommand[] = [
+      const builtinCommandEntries: SlashCommand[] = [
         { name: 'palette', description: t('cmdPalette') },
         { name: 'help', description: t('cmdHelp') },
         { name: 'model', description: t('cmdModel') },
@@ -2822,6 +2850,7 @@ export class Tui extends Service {
         },
         { name: 'new', description: t('cmdNew') },
         { name: 'copy', description: t('cmdCopy') },
+        { name: 'reload', description: t('cmdReload') },
         {
           name: 'resume',
           description: t('cmdResume'),
@@ -2894,7 +2923,13 @@ export class Tui extends Service {
           },
         },
         { name: 'settings', description: t('cmdSettings') },
-        ...ctx.commands.list(liveAgent).map((command): SlashCommand => {
+      ]
+      const builtinCommandNames = new Set(builtinCommandEntries.map(command => command.name))
+      const commandEntries: SlashCommand[] = [...builtinCommandEntries]
+      const skillCommandNames = new Set<string>()
+      const registeredCommandEntries = (target: Agent): SlashCommand[] => ctx.commands.list(target)
+        .filter(command => !builtinCommandNames.has(command.name))
+        .map((command): SlashCommand => {
           if (command.name === 'permission') {
             return {
               name: command.name,
@@ -2908,9 +2943,25 @@ export class Tui extends Service {
             description: command.description,
             ...command.input === undefined ? {} : { argumentHint: command.input.hint },
           }
-        }),
-      ]
-      const skillCommandNames = new Set<string>()
+        })
+      const installAutocomplete = (): void => {
+        const base = new CombinedAutocompleteProvider(commandEntries, workspace)
+        editor.setAutocompleteProvider(new SkillAwareAutocompleteProvider(base))
+        commandHintText = commandInputHint(editor.getText(), commandEntries)
+        ui.requestRender()
+      }
+      const refreshCommandEntries = (): void => {
+        const current = agent ?? liveAgent
+        const skills = commandEntries.filter(command => command.name.startsWith('skill:'))
+        commandEntries.splice(
+          0,
+          commandEntries.length,
+          ...builtinCommandEntries,
+          ...registeredCommandEntries(current),
+          ...skills,
+        )
+        installAutocomplete()
+      }
       const refreshSkillCommands = async (): Promise<void> => {
         try {
           const snapshot = await ctx.skills.snapshot({ cwd: workspace })
@@ -2930,14 +2981,15 @@ export class Tui extends Service {
               skillCommandNames.delete(entry.name)
             }
           }
+          installAutocomplete()
         } catch {
           // Keep the current skill command list if the snapshot fails.
         }
       }
-      const baseAutocomplete = new CombinedAutocompleteProvider(commandEntries, workspace)
-      editor.setAutocompleteProvider(new SkillAwareAutocompleteProvider(baseAutocomplete))
+      refreshCommandEntries()
+      handles.refreshCommands = refreshCommandEntries
+      offCommandsChange = ctx.on('commands/change', refreshCommandEntries)
       void refreshSkillCommands()
-      commandHintText = commandInputHint(editor.getText(), commandEntries)
       editor.onChange = (text: string): void => {
         commandHintText = commandInputHint(text, commandEntries)
         ui.requestRender()
@@ -3038,8 +3090,9 @@ export class Tui extends Service {
         agent = next
         activeHandle = handle
         setActiveAgent(next)
+        handles.refreshCommands?.()
         tokenTotals = { inputTokens: 0, outputTokens: 0 }
-      contextUsageCache.measuredAt = 0
+        contextUsageCache.measuredAt = 0
         refreshContextEstimate(next, nextSelection)
         refreshGitBranch(next.session.header.cwd ?? process.cwd())
         header = new HeaderComponent(
@@ -3241,6 +3294,7 @@ export class Tui extends Service {
       offKeys()
       offEvent?.()
       offStatus?.()
+      offCommandsChange?.()
       offScheme?.()
       offModelSelection?.()
       offWechatOutput?.()

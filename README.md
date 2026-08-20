@@ -198,6 +198,7 @@ dsh --profile tui --resume <session-id>
 | `/new` | 在当前项目、模型和权限模式下新建会话 |
 | `/resume [id]` | 列出或切换当前项目的持久化会话 |
 | `/copy` | 将最近一条助手回复复制到系统剪贴板 |
+| `/reload` | 在当前进程内重新载入 Profile 中新增、移除或重新配置的插件 |
 | `/details` | 查看会话标题、目录、模型、agent、tokens 和 context |
 | `/mode [preset]` | 切换 dsh agent 组合；无参时循环切换 |
 | `/permission [preset]` | 切换沙箱和审批策略 |
@@ -205,6 +206,8 @@ dsh --profile tui --resume <session-id>
 | `/palette` | 查看当前主题实际使用的颜色角色 |
 | `/settings` | 打开可视化设置 |
 | `/skills` | 列出可用技能 |
+
+`/reload` 会重新读取 `tui` Profile 的 Bundle 清单、Profile/Home `cordis.patch.yml`，并通过 Loader 事务性更新插件树。当前进程、会话、输入框、历史和焦点保持原实例；候选插件加载失败，或试图替换 TUI 及其活动服务提供方时，继续使用上一棵可用插件树。活动回合期间会拒绝重载，避免在模型步骤中途改变工具或提示词注册。
 
 `@[label](dsh-session:<id>)` 会将目标会话的模型可见快照注入当前会话。更多命令以运行中的 `/help` 为准。
 

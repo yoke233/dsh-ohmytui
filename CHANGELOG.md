@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 新增 `/reload`：在当前 TUI 进程内重新读取 Profile Bundle 清单及用户 patch，并通过 Loader 事务性装卸插件；当前会话和输入组件保持挂载，失败时保留上一棵可用插件树
+- 命令注册变化会实时刷新 Slash Command 补全，新安装插件贡献的命令在 `/reload` 完成后立即可见
+
 ## [0.2.3] - 2026-08-20
 
 - 升级 dsh 宿主依赖与开发依赖到 `0.1.0-rc.8`：适配 `commands.execute(agent, line, images, signal)` 新签名，TUI 与微信命令路径统一传入空图片批次

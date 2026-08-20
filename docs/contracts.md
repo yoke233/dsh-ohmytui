@@ -505,3 +505,4 @@ interface Config {
 8. **命令**：`ctx.commands.execute(agent, line, images, signal)`（rc8 起必须传 `images`，TUI 当前传 `[]`）；`/help` 列表用 `ctx.commands.list(agent)`。
 9. **模型选择**：`installModelSelection(agent.ctx, selectionRef)` + `agentDefaultModel.currentSelection()/saveSelection()`。
 10. **投影消费**：`ctx.sessionProjections.snapshot(session)` 或 `sessionProjectionCache.cachedSnapshot(header)`（列表零 I/O）。
+11. **Profile 重载**：`@deepseek-ai/dsh-app-boot.loadProfile()` 重新解析 Bundle 清单及 Profile patch，`loadOptionalPatches()` 读取 Home patch；`ctx.loader.resolve('include').update({ config: { ...current, patches } })` 通过根 Include 事务性协调子树。启动器专属的 `--patch` 与硬覆盖从初始 mounted patch 的 Profile 前缀之后保留。重载前比较 `tui` Fiber 及其活动 service provider 对应的配置行，候选若改变其中任何一行则在提交前拒绝；因此输入组件、焦点与当前 Agent 保持原实例，其他候选应用失败由 Loader 回滚。
