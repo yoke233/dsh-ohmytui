@@ -21,10 +21,26 @@ describe('composer steer projection', () => {
     assert.equal(panel.count, 1)
     assert.match(panel.render(48).join('\n'), /steer · 待处理（1）/)
     assert.match(panel.render(48).join('\n'), /补充这个约束/)
+    assert.equal(panel.render(48).at(-1), '')
 
     assert.equal(panel.remove(message.id), true)
     assert.equal(panel.count, 0)
     assert.deepEqual(panel.render(48), [])
+  })
+
+  it('renders every queued steer in insertion order', () => {
+    const panel = new PendingInputPanel(palette, mdTheme, t)
+    panel.insert(createUserMessage({
+      content: [{ type: 'text', text: '第一条约束' }],
+      source: { kind: 'user' },
+    }))
+    panel.insert(createUserMessage({
+      content: [{ type: 'text', text: '第二条约束' }],
+      source: { kind: 'user' },
+    }))
+
+    assert.match(panel.render(48).join('\n'), /第一条约束[\s\S]*第二条约束/)
+    assert.equal(panel.render(48).at(-1), '')
   })
 
   it('projects only direct user messages when synchronizing an inbox', () => {
@@ -58,7 +74,7 @@ describe('composer steer projection', () => {
     }))
 
     const rows = panel.render(24)
-    assert.equal(rows.length, 8)
-    assert.match(rows.at(-1)!, /…/)
+    assert.match(rows.at(-2)!, /…/)
+    assert.equal(rows.at(-1), '')
   })
 })

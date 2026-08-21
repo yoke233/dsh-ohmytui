@@ -116,11 +116,12 @@
     - id: tui-reload
       name: 'dsh-omp-tui/reload'
 
-    # WeChat (iLink) bridge: remote control via the official Tencent WeChat
-    # channel. Loads before the TUI so the TUI's user-questions provider can
-    # delegate ask questions to WeChat through ctx.wechat.askWithFallback.
+    # WeChat (iLink) bridge: opt-in remote control via the official Tencent
+    # WeChat channel. Enable this entry in a later profile patch when needed;
+    # keeping it disabled avoids background receivers and account state by default.
     - id: wechat-ilink
       name: 'dsh-omp-tui/wechat'
+      disabled: true
 
     - id: tui
       name: 'dsh-omp-tui'

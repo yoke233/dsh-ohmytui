@@ -28,6 +28,13 @@ function generation(
   } as ProfileReloadGeneration
 }
 
+function tuiVersion(value: unknown): string {
+  if (value !== null && typeof value === 'object' && 'version' in value && typeof value.version === 'string') {
+    return value.version
+  }
+  throw new Error('fixture TUI service has no string version')
+}
+
 describe('profile reload runtime', () => {
   it('captures launch-only overlays after a profile prefix mutated during Include application', () => {
     const initial = generation(
@@ -168,6 +175,7 @@ describe('profile reload runtime', () => {
     const profilePatch = join(profileDir, 'cordis.patch.yml')
     const profileManifest = join(profileDir, 'package.json')
     const sentinelPlugin = join(profileDir, 'sentinel.mjs')
+    const tuiPlugin = join(profileDir, 'tui.mjs')
     const probePlugin = join(modulesDir, 'probe.mjs')
     const require = createRequire(import.meta.url)
     const hmrEntry = require.resolve('@deepseek-ai/cordis-plugin-hmr')
@@ -183,6 +191,12 @@ describe('profile reload runtime', () => {
     writeFileSync(sentinelPlugin, [
       'export function apply(ctx) {',
       '  ctx.provide("reloadSentinel", Object.freeze({ active: true }))',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(tuiPlugin, [
+      'export function apply(ctx) {',
+      '  ctx.provide("tui", { version: "v1" })',
       '}',
       '',
     ].join('\n'))
@@ -204,6 +218,8 @@ describe('profile reload runtime', () => {
       `      name: ${JSON.stringify(reloadEntry)}`,
       '    - id: sentinel',
       `      name: ${JSON.stringify(pathToFileURL(sentinelPlugin).href)}`,
+      '    - id: tui',
+      `      name: ${JSON.stringify(pathToFileURL(tuiPlugin).href)}`,
       '',
     ].join('\n'))
     writeFileSync(join(modulesDir, 'package.json'), JSON.stringify({
@@ -239,6 +255,7 @@ describe('profile reload runtime', () => {
     try {
       const sentinel = ctx.get('reloadSentinel')
       assert.deepEqual(sentinel, { active: true })
+      assert.equal(tuiVersion(ctx.get('tui')), 'v1')
       writeFileSync(profileManifest, JSON.stringify({
         name: 'dsh-profile-tui',
         private: true,
@@ -251,6 +268,29 @@ describe('profile reload runtime', () => {
       assert.equal(ctx.get('reloadProbe'), 'active')
       assert.equal(ctx.get('reloadSentinel'), sentinel)
 
+      writeFileSync(tuiPlugin, [
+        'export function apply(ctx) {',
+        '  ctx.provide("tui", { version: "v2" })',
+        '}',
+        '',
+      ].join('\n'))
+
+      writeFileSync(join(modulesDir, 'cordis.patch.yml'), [
+        '- insert:',
+        '    - id: reload-probe',
+        `      name: ${JSON.stringify(pathToFileURL(probePlugin).href)}`,
+        '      disabled: true',
+        '',
+      ].join('\n'))
+      const updated = await ctx.tuiReload.reload()
+      assert.equal(updated.changed, true)
+      assert.deepEqual(updated.addedBundles, [])
+      assert.deepEqual(updated.removedBundles, [])
+      assert.equal(ctx.get('reloadProbe'), undefined)
+      assert.equal(ctx.get('reloadSentinel'), sentinel)
+      assert.equal(tuiVersion(ctx.get('tui')), 'v2')
+
+
       writeFileSync(profileManifest, JSON.stringify({
         name: 'dsh-profile-tui',
         private: true,
@@ -261,6 +301,7 @@ describe('profile reload runtime', () => {
       assert.deepEqual(removed.removedBundles, ['reload-fixture'])
       assert.equal(ctx.get('reloadProbe'), undefined)
       assert.equal(ctx.get('reloadSentinel'), sentinel)
+      assert.equal(tuiVersion(ctx.get('tui')), 'v2')
     } finally {
       await ctx.fiber.dispose()
       rmSync(home, { recursive: true, force: true })

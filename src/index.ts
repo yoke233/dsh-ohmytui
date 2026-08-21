@@ -459,6 +459,7 @@ export class Tui extends Service {
     const rebuildChrome = (): void => {
       ui.clear()
       ui.addChild(chat)
+      ui.addChild(new Spacer(1))
       ui.addChild(todoPanel)
       ui.addChild(subagentPanel)
       ui.addChild(pendingInputPanel)
@@ -832,7 +833,15 @@ export class Tui extends Service {
           // its rendered partial content stays in the transcript.
           assistantStream.end()
           if (live && notify && event.data.reason.kind !== 'completed') {
-            appendNotice(t('noticeTurnEnded', { reason: event.data.reason.kind }), 'warning')
+            const reason = event.data.reason
+            if (reason.kind === 'error') {
+              appendNotice(t('noticeTurnFailed', {
+                code: reason.error.code,
+                error: reason.error.message,
+              }), 'error')
+            } else {
+              appendNotice(t('noticeTurnEnded', { reason: reason.kind }), 'warning')
+            }
           }
           break
         }
@@ -1149,10 +1158,16 @@ export class Tui extends Service {
             rebuildChrome()
             setStatus(current.status)
           }
-          appendNotice(t('noticeReloaded', {
-            added: result.addedBundles.length,
-            removed: result.removedBundles.length,
-          }), 'info')
+          if (!result.changed) {
+            appendNotice(t('noticeReloadUnchanged'), 'info')
+          } else if (result.addedBundles.length === 0 && result.removedBundles.length === 0) {
+            appendNotice(t('noticeReloadedConfig'), 'info')
+          } else {
+            appendNotice(t('noticeReloaded', {
+              added: result.addedBundles.length,
+              removed: result.removedBundles.length,
+            }), 'info')
+          }
         } catch (error: unknown) {
           appendNotice(t('noticeReloadFailed', { error: errorChain(error) }), 'error')
         }

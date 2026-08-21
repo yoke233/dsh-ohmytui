@@ -1,4 +1,5 @@
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -12,6 +13,21 @@ import {
 
 /** One parsed Cordis patch from a profile, bundle, or launcher overlay. */
 type ProfilePatch = Profile['patches'][number]
+
+let codeReloadSequence = 0
+
+/** Resolve a loader entry to a cache-busted file URL without touching HMR internals. */
+export function reloadableModuleSpecifier(specifier: string, anchor = import.meta.url): string {
+  let url: URL
+  try {
+    url = new URL(specifier)
+    if (url.protocol !== 'file:') throw new Error(`unsupported reload protocol: ${url.protocol}`)
+  } catch {
+    url = pathToFileURL(createRequire(anchor).resolve(specifier))
+  }
+  url.searchParams.set('dsh-tui-reload', `${Date.now()}-${++codeReloadSequence}`)
+  return url.href
+}
 
 /** Profile-owned layers that can change while the TUI process remains live. */
 export interface ProfileReloadGeneration {
@@ -154,8 +170,13 @@ interface RootIncludeConfig {
   [key: string]: unknown
 }
 
+interface ReloadableEntry {
+  options: { id?: unknown; name: string }
+  update(options: { name: string }): Promise<void>
+}
+
 interface EntryOwnedFiber {
-  entry?: { options: { id?: unknown } }
+  entry?: ReloadableEntry
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -274,9 +295,15 @@ export class TuiReload extends Service {
     })
   }
 
-  /** Re-read and transactionally apply the complete live profile. */
-  reload(): Promise<ProfileReloadResult> {
-    return this.runtime.reload()
+  /** Re-read profile configuration, then replace only the active TUI module instance. */
+  async reload(): Promise<ProfileReloadResult> {
+    const result = await this.runtime.reload()
+    const fiber = this.ctx.reflect._getImpl('tui', true)?.fiber as typeof this.ctx.fiber & EntryOwnedFiber | undefined
+    const entry = fiber?.entry
+    if (entry === undefined) throw new Error('tui reload: active TUI entry is unavailable')
+    await entry.update({ name: reloadableModuleSpecifier(entry.options.name) })
+    await this.ctx.loader.await()
+    return result
   }
 }
 

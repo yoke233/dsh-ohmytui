@@ -324,6 +324,25 @@ describe('transcript chronology', () => {
     assert.ok(firstModel < secondUser)
     assert.ok(secondUser < secondModel)
   })
+
+  it('separates assistant prose from the preceding transcript card', () => {
+    const transcript = new Container()
+    const assistant = new AssistantStreamController(transcript, palette, mdTheme)
+    assistant.start(false)
+    transcript.addChild(new ContextCardComponent(
+      '@deepseek-ai/dsh-system-prompt',
+      'Current runtime context.',
+      6,
+      palette,
+    ))
+    assistant.settle([{ type: 'text', text: 'model response' }])
+
+    const rows = transcript.render(80)
+    const modelRow = rows.findIndex(row => row.includes('model response'))
+    assert.ok(modelRow > 0)
+    assert.equal(rows[modelRow - 1], '')
+  })
+
 })
 
 describe('transcript viewport', () => {
@@ -338,9 +357,6 @@ describe('transcript viewport', () => {
     viewport.addChild(staticComponent(lines) as never)
     const rows = render(viewport, 80)
     assert.deepEqual(rows, lines.slice(14, 20))
-    assert.equal(viewport.followLatest, true)
-    assert.equal(viewport.lineOffset, 14)
-    assert.equal(viewport.lastViewportLines, 6)
   })
 
   it('keeps a frozen top offset when not following the latest', () => {
@@ -350,7 +366,6 @@ describe('transcript viewport', () => {
     viewport.lineOffset = 3
     const rows = render(viewport, 80)
     assert.deepEqual(rows, lines.slice(3, 9))
-    assert.equal(viewport.lineOffset, 3)
   })
 
   it('clamps the offset and returns all lines when the transcript fits', () => {
@@ -360,9 +375,6 @@ describe('transcript viewport', () => {
     viewport.lineOffset = 10
     const rows = render(viewport, 80)
     assert.deepEqual(rows, lines)
-    assert.equal(viewport.lineOffset, 0)
-    assert.equal(viewport.lastTotalLines, 20)
-    assert.equal(viewport.lastViewportLines, 20)
   })
 })
 

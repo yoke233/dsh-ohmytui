@@ -215,9 +215,14 @@ export class HeaderComponent implements Component {
 export class UserMessageComponent extends Container {
   private renderCache: RenderCache | undefined
 
-  constructor(text: string, private readonly palette: Palette, mdTheme: MarkdownTheme) {
+  constructor(
+    text: string,
+    private readonly palette: Palette,
+    mdTheme: MarkdownTheme,
+    verticalPadding = 1,
+  ) {
     super()
-    this.addChild(new Markdown(displayText(text), 1, 1, mdTheme, {
+    this.addChild(new Markdown(displayText(text), 1, verticalPadding, mdTheme, {
       color: (value: string) => palette.text(value),
     }, {
       preserveOrderedListMarkers: true,
@@ -361,6 +366,7 @@ export class StreamingAssistantComponent extends Container {
       this.palette,
       this.mdTheme,
     )
+    if (children.length > 0) this.addChild(new Spacer(1))
     for (const child of children) this.addChild(child)
   }
 

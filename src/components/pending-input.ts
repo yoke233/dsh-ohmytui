@@ -1,4 +1,4 @@
-import { Container, Text } from '@earendil-works/pi-tui'
+import { Container, Spacer, Text } from '@earendil-works/pi-tui'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { MarkdownTheme, Palette } from '../theme.ts'
 import type { Translator } from '../i18n.ts'
@@ -47,18 +47,23 @@ export class PendingInputPanel extends Container {
 
   override render(width: number): string[] {
     const rows = super.render(width)
-    if (rows.length <= PendingInputPanel.MAX_LINES) return rows
+    if (rows.length === 0) return rows
+    if (rows.length < PendingInputPanel.MAX_LINES) return [...rows, '']
     return [
-      ...rows.slice(0, PendingInputPanel.MAX_LINES - 1),
+      ...rows.slice(0, PendingInputPanel.MAX_LINES - 2),
       this.palette.muted(' …'),
+      '',
     ]
   }
 
   private rebuild(): void {
     this.clear()
-    const latest = [...this.messages.values()].at(-1)
-    if (latest === undefined) return
+    const messages = [...this.messages.values()]
+    if (messages.length === 0) return
     this.addChild(new Text(this.palette.muted(this.t('queuedSteer', { count: this.count })), 1, 0))
-    this.addChild(new UserMessageComponent(contentText(latest.content), this.palette, this.mdTheme))
+    messages.forEach((message, index) => {
+      if (index > 0) this.addChild(new Spacer(1))
+      this.addChild(new UserMessageComponent(contentText(message.content), this.palette, this.mdTheme, 0))
+    })
   }
 }

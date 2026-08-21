@@ -83,6 +83,8 @@ export type Messages = {
   noticeCopyEmpty: string
   noticeReloading: string
   noticeReloaded: string
+  noticeReloadedConfig: string
+  noticeReloadUnchanged: string
   noticeReloadBusy: string
   noticeReloadFailed: string
   noticeThinkSet: string
@@ -97,6 +99,7 @@ export type Messages = {
   noticeCompactionHint: string
   noticeCompaction400Hint: string
   noticeTurnEnded: string
+  noticeTurnFailed: string
   noticeToolCards: string
   noticeReasoningShown: string
   noticeReasoningHidden: string
@@ -326,6 +329,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeReloading: '正在重新载入 Profile 插件…',
     noticeReloaded: 'Profile 插件已重新载入（新增 {added}，移除 {removed}）。',
     noticeReloadBusy: '请等待当前回合结束后再重新载入插件。',
+    noticeReloadedConfig: 'Profile 配置已重新载入并生效。',
+    noticeReloadUnchanged: 'Profile 插件已是最新配置，无需重新载入。',
     noticeReloadFailed: 'Profile 插件重新载入失败：{error}',
     noticeThinkSet: '思考等级已切换为 {name}（{id}）。',
     noticeThinkAlready: '当前思考等级已是 {name}（{id}）。',
@@ -339,6 +344,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeCompactionHint: '压缩失败通常表示可压缩历史太少或摘要未比原文更短。建议继续对话积累更多历史后再试。',
     noticeCompaction400Hint: '压缩请求被模型 API 拒绝（HTTP 400）。请检查 DEEPSEEK_BASE_URL 网关是否兼容 compaction 请求，以及当前模型是否支持该请求体。',
     noticeTurnEnded: '回合结束：{reason}。',
+    noticeTurnFailed: '回合失败（{code}）：{error}',
     noticeToolCards: '工具卡：{visibility}。',
     noticeReasoningShown: '思考块已显示。',
     noticeReasoningHidden: '思考块已隐藏。',
@@ -563,6 +569,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeCopyEmpty: 'There is no assistant response to copy yet.',
     noticeReloading: 'Reloading profile plugins…',
     noticeReloaded: 'Profile plugins reloaded ({added} added, {removed} removed).',
+    noticeReloadedConfig: 'Profile configuration reloaded and applied.',
+    noticeReloadUnchanged: 'Profile plugins are already up to date.',
     noticeReloadBusy: 'Wait for the current turn to finish before reloading plugins.',
     noticeReloadFailed: 'Failed to reload profile plugins: {error}',
     noticeThinkSet: 'Reasoning effort switched to {name} ({id}).',
@@ -577,6 +585,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeCompactionHint: 'Compaction usually fails when the compactable history is too small or the summary is not shorter. Continue the conversation and retry later.',
     noticeCompaction400Hint: 'The model API rejected the compaction request (HTTP 400). Check whether DEEPSEEK_BASE_URL gateway supports compaction requests and whether the current model accepts the request body.',
     noticeTurnEnded: 'Turn ended: {reason}.',
+    noticeTurnFailed: 'Turn failed ({code}): {error}',
     noticeToolCards: 'Tool cards {visibility}.',
     noticeReasoningShown: 'Reasoning blocks shown.',
     noticeReasoningHidden: 'Reasoning blocks hidden.',
