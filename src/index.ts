@@ -390,8 +390,9 @@ export class Tui extends Service {
     const terminal = new ProcessTerminal()
     // Keep the hardware cursor visible at the editor's real cursor position;
     // IMEs that preview pinyin/composition inline depend on it being shown there.
+    // Match Pi's native inline rendering: let content shrink without forcing a
+    // viewport-wide clear, so the terminal keeps its normal scrollback flow.
     const ui = new TUI(terminal, true)
-    ui.setClearOnShrink(true)
 
     // The agent is published asynchronously on the resume path (persistence
     // load), so agent-dependent setup runs in mount() once it is live.
@@ -451,15 +452,9 @@ export class Tui extends Service {
     let noticeMounted = false
     let noticeTimer: NodeJS.Timeout | undefined
 
-    /** Lines consumed by every root child below the transcript viewport. */
-    const computeTranscriptHeight = (width: number): number => {
-      let used = 0
-      for (const child of [todoPanel, subagentPanel, pendingInputPanel, noticeSlot, statusLine, askSlot, editor, commandHint, inputBorder, footer]) {
-        used += child.render(width).length
-      }
-      return Math.max(1, ui.terminal.rows - used)
-    }
-    const chat = new TranscriptViewport(computeTranscriptHeight)
+    // Keep transcript and composer in normal terminal flow. The application
+    // does not reserve a fullscreen viewport or pin the composer to the bottom.
+    const chat = new TranscriptViewport(() => Number.MAX_SAFE_INTEGER)
 
     const rebuildChrome = (): void => {
       ui.clear()
@@ -2461,7 +2456,8 @@ export class Tui extends Service {
           }
           screen.onBack = handleBack
 
-          const handle = ui.showOverlay(screen, { anchor: 'top-left', width: '100%', maxHeight: '100%', margin: 0 })
+          // Keep settings as a windowed overlay instead of replacing the whole viewport.
+          const handle = ui.showOverlay(screen, { anchor: 'center', width: '80%', maxHeight: '80%', margin: 1 })
           await new Promise<void>((resolve) => {
             screen.onClose = () => {
               handle.hide()
@@ -2699,13 +2695,6 @@ export class Tui extends Service {
     const EXIT_ARM_WINDOW_MS = 2000
 
     const offKeys = ui.addInputListener((data) => {
-      const mouseMatch = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(data)
-      if (mouseMatch !== null) {
-        const button = Number(mouseMatch[1])
-        if (button === 64) scrollTranscriptLines(-3) // wheel up
-        else if (button === 65) scrollTranscriptLines(3) // wheel down
-        return { consume: true }
-      }
       if (matchesKey(data, 'ctrl+c')) {
         if (exitArmed) {
           clearTimeout(exitArmTimer)
@@ -3296,10 +3285,8 @@ export class Tui extends Service {
         ui.requestRender()
       })()
       ui.start()
-      // Do not enable terminal mouse tracking here. Tracking turns drag events
-      // into application input and prevents native text selection/copy in
-      // Windows Terminal and other terminals. Transcript paging remains
-      // available through PageUp/PageDown while the terminal owns the mouse.
+      // Do not enable mouse tracking. The terminal retains native wheel,
+      // selection, click, and copy behavior.
       warnIfFullAccess(liveAgent)
 
     }
