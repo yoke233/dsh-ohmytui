@@ -155,6 +155,15 @@ export type Messages = {
   // --- dialogs and flows --------------------------------------------------
   dialogTypeAnswer: string
   askTitle: string
+  approvalTitle: string
+  approvalTool: string
+  approvalReason: string
+  approvalReasonFallback: string
+  approvalAllowOnce: string
+  approvalAllowOnceHint: string
+  approvalReject: string
+  approvalRejectHint: string
+  approvalHint: string
   askInlineOptionHint: string
   askInlineMultiHint: string
   askInlineTextHint: string
@@ -424,6 +433,15 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeFullAccessWarning: '当前为完全访问模式：文件沙箱已禁用，且不会请求审批。请谨慎操作。',
     dialogTypeAnswer: '输入你的回答并回车',
     askTitle: '提问',
+    approvalTitle: '需要授权',
+    approvalTool: '工具：{tool}',
+    approvalReason: '原因：{reason}',
+    approvalReasonFallback: '该操作超出当前权限范围。',
+    approvalAllowOnce: '仅允许本次操作',
+    approvalAllowOnceHint: '只授权当前这一次工具调用',
+    approvalReject: '拒绝',
+    approvalRejectHint: '不执行此高权限操作',
+    approvalHint: '↑/↓ 选择 · Enter 确认 · Esc 拒绝',
     askInlineOptionHint: '输入数字选择，或直接输入自定义回答后回车',
     askInlineMultiHint: '多个选项用逗号分隔序号，回车提交；也可直接输入自定义回答',
     askInlineTextHint: '输入回答后回车',
@@ -690,6 +708,15 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeFullAccessWarning: 'Full access mode is active: file confinement is disabled and approval prompts are off. Proceed with care.',
     dialogTypeAnswer: 'type your answer and press enter',
     askTitle: 'Question',
+    approvalTitle: 'Authorization required',
+    approvalTool: 'Tool: {tool}',
+    approvalReason: 'Reason: {reason}',
+    approvalReasonFallback: 'This operation exceeds the current permission scope.',
+    approvalAllowOnce: 'Allow once',
+    approvalAllowOnceHint: 'Authorize only this tool call',
+    approvalReject: 'Reject',
+    approvalRejectHint: 'Do not run this privileged operation',
+    approvalHint: '↑/↓ select · Enter confirm · Esc reject',
     askInlineOptionHint: 'Type a number to select, or type a custom answer and press Enter',
     askInlineMultiHint: 'Enter comma-separated option numbers and press Enter, or type a custom answer',
     askInlineTextHint: 'Type your answer and press Enter',

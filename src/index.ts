@@ -31,12 +31,13 @@ import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
 import { renderSkillContent } from '@deepseek-ai/dsh-skill'
 // Type-only imports pull in the declaration merges that expose `ctx.commands`,
-// `ctx.tokenMeter`, `ctx.llm`, `ctx.userQuestions`, `ctx.sessionQuery`,
+// `ctx.tokenMeter`, `ctx.llm`, `ctx.userQuestions`, `ctx.approval`, `ctx.sessionQuery`,
 // `ctx.agentDefaultModel`, `ctx.skills`, `ctx.sessionReferenceResolver`, and
 // `ctx.permissionPresets` on the cordis Context, plus the goal/compaction/skill
 // session-event extensions.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-token-meter'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -121,11 +122,12 @@ import {
   runModelFlow,
   showOverlay,
 } from './components/dialogs.ts'
+import { runApprovalFlow } from './components/approval-dialog.ts'
 import { ModelListDialog } from './components/model-list-dialog.ts'
 import { SettingsScreen, type SettingsItem, type SettingsTab } from './components/settings-screen.ts'
+import { ContextUsageScreen, buildContextUsageSnapshot } from './components/context-usage-screen.ts'
 import { CustomModelForm, type CustomModelDraft } from './components/custom-model-form.ts'
 import {
-import { ContextUsageScreen, buildContextUsageSnapshot } from './components/context-usage-screen.ts'
   ProviderForm,
   SUPPORTED_PROVIDER_APIS,
   type DiscoveredModel,
@@ -238,7 +240,7 @@ async function readGitBranch(cwd: string): Promise<string | undefined> {
 
 /** The terminal mode's plugin entry: mounts the whole UI in its constructor. */
 export class Tui extends Service {
-  static inject = ['tuiStartup', 'tuiReload', 'agents', 'tuiPrompt', 'commands', 'tokenMeter', 'llm', 'userQuestions', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
+  static inject = ['tuiStartup', 'tuiReload', 'agents', 'tuiPrompt', 'commands', 'tokenMeter', 'llm', 'userQuestions', 'approval', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
   static Config = TuiConfigSchema
 
   /** Mount 后由 TUI 赋值：读取当前前台 agent。 */
@@ -3080,6 +3082,24 @@ export class Tui extends Service {
             ),
           }
         },
+      })
+
+      // The approval service fails closed when no answerer claims a request.
+      // Claim only requests for the foreground agent and render a modal choice.
+      ctx.on('approval/request', async (request, next) => {
+        if (request.agent !== agent) return next()
+        try {
+          return await runApprovalFlow(
+            ui,
+            palette,
+            t,
+            request.toolName,
+            request.reason,
+            request.signal,
+          )
+        } finally {
+          ui.setFocus(editor)
+        }
       })
 
       const handleSessionEvent = (targetId: SessionId, session: Session, event: SessionEvent): void => {

@@ -204,7 +204,9 @@ export declare function parseCmdline(ctx: Context, program: Command): void;  // 
 
 ---
 
-## 4. 提问 — `@deepseek-ai/dsh-user-questions`
+## 4. 交互
+
+### 4.1 提问 — `@deepseek-ai/dsh-user-questions`
 
 ```ts
 export interface AskUserQuestionItem {
@@ -226,6 +228,45 @@ class UserQuestionService extends Service {   // ctx.userQuestions
 ```
 
 - 模型侧工具在 `@deepseek-ai/dsh-tool-ask-user`；TUI 注册唯一 UI provider，渲染对话框并返回答案。
+
+### 4.2 授权 — `@deepseek-ai/dsh-user-approval`
+
+```ts
+export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
+export type ApprovalPolicy = 'ask' | 'never';
+
+export interface ApprovalRequest {
+  readonly agent: Agent;
+  readonly toolName: string;
+  readonly callId?: CallId;
+  readonly reason?: string;
+  readonly signal?: AbortSignal;
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context { approval: ApprovalService; }
+  interface Events {
+    // waterfall：回答者返回 outcome 认领请求；不认领时调用 next()。
+    // agent-scoped listener 只收到对应 agent 的请求。
+    'approval/request'(
+      this: Scoped<ApprovalService>,
+      req: ApprovalRequest,
+      next: () => Promise<ApprovalOutcome>,
+    ): Promise<ApprovalOutcome>;
+  }
+}
+
+class ApprovalService extends Service {
+  request(req: ApprovalRequest): Promise<ApprovalOutcome>;
+  setPolicy(agent: Agent, policy: ApprovalPolicy): void;
+  overrideOf(session: Session): ApprovalPolicy | undefined;
+}
+```
+
+- 默认策略 `ask` 把请求交给 answerer waterfall；没有回答者或回答者抛错时返回 `unavailable`，调用方必须 fail closed。`never` 不显示弹框并固定返回 `rejected`。
+- 只有 `allowed-once` 授权当前单次操作；Esc/关闭 UI 必须返回 `rejected`，`AbortSignal` 触发时返回 `cancelled`。
+- 审计事件为 `approval/asked` 与 `approval/decided`（同一 request id，log-only）；策略覆盖记录为 `approval/policy`。`request()` 只能在 open turn 内调用，以保证审计事件对完整落在回合边界内。
+- TUI 在 `approval/request` 上注册 waterfall answerer，只认领当前前台 agent 的请求，展示 toolName/reason，并允许“仅本次授权”或“拒绝”；其他 agent 调用 `next()`。
 
 ---
 
@@ -488,6 +529,7 @@ interface Config {
 - `tools`：`{ mode?: 'native'|'code'|'both' (default native), maxParallelSubCalls?: number (default 10) }`
 - `system-prompt`：`{ persona?, toolOrder?, includeHarnessIdentity?, includeRuntimeContext? }`
 - `fs-sandbox`：`{ cwd }`（workspace 根）
+- `approval`：`{ policy?: 'ask'|'never' }`（默认 `ask`；交互前端需注册 `approval/request` answerer）
 - `llm-deepseek`：`{ apiKeyEnv?, baseURL?, thinking?, reasoningEffort?, maxRequestImageBytes? }`；`reasoningEffort` 支持 `off | low | high | max`；`models[]` 可声明 `inputModalities: ['text'] | ['text','image']`（settings 分节 llm-deepseek 可热覆盖）
 - `dsh-terminal`：无配置；**TUI 不直调**（owner 绑定，供 dsh-tool-terminal 消费）
 
@@ -502,7 +544,8 @@ interface Config {
 5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；idle 时启动回合，running 时由最近的下一 step 领取。`agent/inbox/inserted` 立即投影到待处理面板，正式 `user/message` 到达后按 message id 移除预览并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。
 6. **中断**：`agent.cancel({ kind: 'user' })`。
 7. **提问**：`ctx.userQuestions.registerProvider(provider)`；对话框完成后 resolve `AskUserQuestionAnswer`。
-8. **命令**：`ctx.commands.execute(agent, line, images, signal)`（rc8 起必须传 `images`，TUI 当前传 `[]`）；`/help` 列表用 `ctx.commands.list(agent)`。
-9. **模型选择**：`installModelSelection(agent.ctx, selectionRef)` + `agentDefaultModel.currentSelection()/saveSelection()`。
-10. **投影消费**：`ctx.sessionProjections.snapshot(session)` 或 `sessionProjectionCache.cachedSnapshot(header)`（列表零 I/O）。
-11. **Profile 重载**：`@deepseek-ai/dsh-app-boot.loadProfile()` 重新解析 Bundle 清单及 Profile patch，`loadOptionalPatches()` 读取 Home patch；`ctx.loader.resolve('include').update({ config: { ...current, patches } })` 通过根 Include 事务性协调子树。启动器专属的 `--patch` 与硬覆盖从初始 mounted patch 的 Profile 前缀之后保留。重载前比较 `tui` Fiber 及其活动 service provider 对应的配置行，候选若改变其中任何一行则在提交前拒绝；因此输入组件、焦点与当前 Agent 保持原实例，其他候选应用失败由 Loader 回滚。
+8. **授权**：监听 waterfall `approval/request`；只认领当前前台 agent，弹框返回 `allowed-once`/`rejected`，中止返回 `cancelled`，其他 agent 调用 `next()`。
+9. **命令**：`ctx.commands.execute(agent, line, images, signal)`（rc8 起必须传 `images`，TUI 当前传 `[]`）；`/help` 列表用 `ctx.commands.list(agent)`。
+10. **模型选择**：`installModelSelection(agent.ctx, selectionRef)` + `agentDefaultModel.currentSelection()/saveSelection()`。
+11. **投影消费**：`ctx.sessionProjections.snapshot(session)` 或 `sessionProjectionCache.cachedSnapshot(header)`（列表零 I/O）。
+12. **Profile 重载**：`@deepseek-ai/dsh-app-boot.loadProfile()` 重新解析 Bundle 清单及 Profile patch，`loadOptionalPatches()` 读取 Home patch；`ctx.loader.resolve('include').update({ config: { ...current, patches } })` 通过根 Include 事务性协调子树。启动器专属的 `--patch` 与硬覆盖从初始 mounted patch 的 Profile 前缀之后保留。重载前比较 `tui` Fiber 及其活动 service provider 对应的配置行，候选若改变其中任何一行则在提交前拒绝；因此输入组件、焦点与当前 Agent 保持原实例，其他候选应用失败由 Loader 回滚。

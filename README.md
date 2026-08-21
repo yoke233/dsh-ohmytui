@@ -209,6 +209,8 @@ dsh --profile tui --resume <session-id>
 | `/settings` | 打开可视化设置 |
 | `/skills` | 列出可用技能 |
 
+在 `read-only` 或 `workspace-write` 模式下，工具操作超出当前权限范围时，TUI 会弹出授权框，显示工具名和授权原因；可选择“仅允许本次操作”或“拒绝”，按 `Esc` 也会拒绝。`full-access` 模式不会显示审批弹框。
+
 `/reload` 会重新读取 `tui` Profile 的 Bundle 清单、Profile/Home `cordis.patch.yml`，并通过 Loader 事务性更新插件树。当前进程、会话、输入框、历史和焦点保持原实例；候选插件加载失败，或试图替换 TUI 及其活动服务提供方时，继续使用上一棵可用插件树。活动回合期间会拒绝重载，避免在模型步骤中途改变工具或提示词注册。
 
 `@[label](dsh-session:<id>)` 会将目标会话的模型可见快照注入当前会话。更多命令以运行中的 `/help` 为准。

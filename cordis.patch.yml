@@ -125,7 +125,7 @@
 
     - id: tui
       name: 'dsh-omp-tui'
-      inject: [tuiStartup]
+      inject: [tuiStartup, approval]
       config:
         sessionId: !!js ctx.tuiStartup.sessionId ?? ctx.tuiStartup.resumeSessionId
         showReasoning: true
