@@ -45,6 +45,7 @@ export type Messages = {
   helpMode: string
   helpTheme: string
   helpSettings: string
+  helpContext: string
   // --- command autocomplete descriptions ----------------------------------
   cmdPalette: string
   cmdHelp: string
@@ -59,6 +60,30 @@ export type Messages = {
   cmdMode: string
   cmdTheme: string
   cmdSettings: string
+  cmdContext: string
+  // --- /context full-screen inspector --------------------------------------
+  contextTitle: string
+  contextCategory: string
+  contextSystemPrompt: string
+  contextSystemTools: string
+  contextCustomTools: string
+  contextMemory: string
+  contextSkills: string
+  contextUserMessages: string
+  contextAgentText: string
+  contextAgentThinking: string
+  contextAgentToolCalls: string
+  contextToolOutput: string
+  contextCompactedData: string
+  contextAutocompleteBuffer: string
+  contextFreeSpace: string
+  contextMap: string
+  contextMapSingle: string
+  contextMapShared: string
+  contextBlockSize: string
+  contextEstimate: string
+  contextControls: string
+  contextPreview: string
   helpPermission: string
   cmdPermission: string
   queuedSteer: string
@@ -299,6 +324,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdNew: '新建会话',
     cmdSettings: '打开可视化设置',
     cmdResume: '恢复持久化会话',
+    helpContext: '查看上下文窗口用量',
     cmdCopy: '复制最近一条助手回复',
     cmdReload: '重新载入当前 Profile 中安装的插件',
     cmdDetails: '查看会话诊断',
@@ -307,6 +333,29 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdMode: '切换工作模式（官方预设与本地安装的预设）',
     cmdTheme: '查看或切换主题',
     helpPermission: '切换权限模式（沙箱 + 审批策略）',
+    cmdContext: '查看上下文窗口用量',
+    contextTitle: '上下文用量',
+    contextCategory: '分类：',
+    contextSystemPrompt: '系统提示词',
+    contextSystemTools: '系统工具',
+    contextCustomTools: '自定义工具',
+    contextMemory: '记忆（AGENTS.md）',
+    contextSkills: '技能',
+    contextUserMessages: '用户消息',
+    contextAgentText: 'Agent 文本消息',
+    contextAgentThinking: 'Agent 思考消息',
+    contextAgentToolCalls: 'Agent 工具调用消息',
+    contextToolOutput: '工具输出',
+    contextCompactedData: '压缩数据',
+    contextAutocompleteBuffer: '自动压缩缓冲区',
+    contextFreeSpace: '剩余空间',
+    contextMap: '图例：',
+    contextMapSingle: '单一分类块',
+    contextMapShared: '共享块，显示占比最大的分类',
+    contextBlockSize: '块大小：{size}（{percent}%）',
+    contextEstimate: '这是下一次模型请求的上下文估算。Token 数为近似值，可能与供应商估算不同。',
+    contextControls: '↑↓/j/k 导航 · Enter 预览 · Z 缩放 · Esc 关闭',
+    contextPreview: '{category} 预计占用 {tokens} token。',
     cmdPermission: '切换权限模式（沙箱 + 审批策略）',
     queuedSteer: 'steer · 待处理（{count}）',
     queuedSteerOmitted: '… 省略较早的 {count} 条',
@@ -552,6 +601,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdPermission: 'Switch permission mode (sandbox + approval policy)',
     queuedSteer: 'steer · queued ({count})',
     queuedSteerOmitted: '… {count} earlier queued',
+    helpContext: 'show context window usage',
     noticeNoSessions: 'No persisted sessions.',
     noticeSessionListFailed: 'Session listing failed: {error}',
     noticeNoSkills: 'No skills available.',
@@ -566,6 +616,29 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeSessionCreateFailed: 'Failed to create session: {error}',
     noticeSessionResumed: 'Session {id} resumed.',
     noticeResumeFailed: 'Failed to resume session: {error}',
+    cmdContext: 'Show context window usage',
+    contextTitle: 'Context Usage',
+    contextCategory: 'Category:',
+    contextSystemPrompt: 'System Prompt',
+    contextSystemTools: 'System Tools',
+    contextCustomTools: 'Custom Tools',
+    contextMemory: 'Memory (AGENTS.md)',
+    contextSkills: 'Skills',
+    contextUserMessages: 'User Messages',
+    contextAgentText: 'Agent Text Messages',
+    contextAgentThinking: 'Agent Thinking Messages',
+    contextAgentToolCalls: 'Agent Tool Call Messages',
+    contextToolOutput: 'Tool Output',
+    contextCompactedData: 'Compacted Data',
+    contextAutocompleteBuffer: 'Auto-Compact Buffer',
+    contextFreeSpace: 'Free Space',
+    contextMap: 'Map:',
+    contextMapSingle: 'Single category block',
+    contextMapShared: 'Shared block, largest category shown',
+    contextBlockSize: 'Block Size: {size} ({percent}%)',
+    contextEstimate: "Estimated context for the next model request. Token counts are approximate and may differ from the provider's estimate.",
+    contextControls: '↑↓/j/k Navigate · Enter Preview · Z Zoom · Esc Close',
+    contextPreview: '{category} is estimated to use {tokens} tokens.',
     noticeResumeTimeout: 'Session resume timed out and was cancelled.',
     noticeModelSet: 'Model set to {provider}/{model}.',
     noticeCopySuccess: 'Copied the latest assistant response.',

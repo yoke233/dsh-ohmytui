@@ -1,6 +1,6 @@
 # dsh-omp-tui 合约速查表（contracts.md）
 
-> dsh 0.1.0-rc.8 唯一真相源。类型文本逐字引自 npm 安装包
+> dsh 0.1.1-rc.2 唯一真相源。类型文本逐字引自 npm 安装包
 > `@deepseek-ai/*/lib/types/*.d.ts`。本文件是 TUI bundle 消费 harness 服务的地图；
 > 上游接口变更时先更新本表再改代码。
 > 包根：`node_modules/@deepseek-ai`（本仓库 pnpm 安装）与全局 dsh 安装目录中的 `node_modules/@deepseek-ai`
@@ -311,7 +311,7 @@ tool-todo、tool-goal、tool-ralph、tool-str-replace-editor、repeat-tool-remin
 
 ---
 
-## 6. 会话持久化/投影/查询（scout 汇总，rc.8 逐字）
+## 6. 会话持久化/投影/查询（scout 汇总，rc.2 逐字）
 
 ### 6.1 SessionPersistence（`ctx.sessionPersistence`，抽象服务）
 

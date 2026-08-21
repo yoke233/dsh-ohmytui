@@ -125,6 +125,7 @@ import { ModelListDialog } from './components/model-list-dialog.ts'
 import { SettingsScreen, type SettingsItem, type SettingsTab } from './components/settings-screen.ts'
 import { CustomModelForm, type CustomModelDraft } from './components/custom-model-form.ts'
 import {
+import { ContextUsageScreen, buildContextUsageSnapshot } from './components/context-usage-screen.ts'
   ProviderForm,
   SUPPORTED_PROVIDER_APIS,
   type DiscoveredModel,
@@ -986,6 +987,37 @@ export class Tui extends Service {
       }
       // The TUI presents the unrestricted preset as `full-access`; the host
       // registry still knows it as `danger-full-access`, so translate before
+      if (line === '/context' || line.startsWith('/context ')) {
+        try {
+          const measurement = ctx.tokenMeter.measure(current.session)
+          const selection = handles.selectionRef?.current
+          const model = selection?.model ?? current.session.requestHeader()?.config.model ?? 'model'
+          let capacity = estimatedContextWindow
+          if (selection !== undefined) {
+            const info = await ctx.llm.resolveModelInfo(selection.provider, selection.model)
+            capacity = info.context?.contextWindow ?? capacity
+          }
+          const snapshot = buildContextUsageSnapshot(
+            current.session.events,
+            measurement.nodes,
+            measurement.totalTokens,
+            capacity,
+            model,
+          )
+          const screen = new ContextUsageScreen(snapshot, palette, t, terminal.rows)
+          ui.clear()
+          ui.addChild(screen)
+          ui.setFocus(screen)
+          ui.requestRender()
+          await new Promise<void>((resolve) => { screen.onClose = resolve })
+          rebuildChrome()
+          ui.requestRender()
+        } catch (error: unknown) {
+          rebuildChrome()
+          appendNotice(t('noticeEventRenderFailed', { error: errorChain(error) }), 'error')
+        }
+        return
+      }
       // handing the slash command to the backend.
       const permissionMatch = /^\/permission(?:\s+(.*))?$/.exec(line)
       if (permissionMatch !== null) {
@@ -2594,6 +2626,7 @@ export class Tui extends Service {
           ...commandRows,
         ]
         chat.addChild(new StaticCardComponent(rows, palette))
+          `/context — ${t('helpContext')}`,
         ui.requestRender()
         return
       }
@@ -2949,6 +2982,7 @@ export class Tui extends Service {
       ]
       const builtinCommandNames = new Set(builtinCommandEntries.map(command => command.name))
       const commandEntries: SlashCommand[] = [...builtinCommandEntries]
+        { name: 'context', description: t('cmdContext') },
       const skillCommandNames = new Set<string>()
       const registeredCommandEntries = (target: Agent): SlashCommand[] => ctx.commands.list(target)
         .filter(command => !builtinCommandNames.has(command.name))
