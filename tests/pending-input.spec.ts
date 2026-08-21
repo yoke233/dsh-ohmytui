@@ -43,6 +43,21 @@ describe('composer steer projection', () => {
     assert.equal(panel.render(48).at(-1), '')
   })
 
+  it('bounds rendering to the newest messages and reports omitted steers', () => {
+    const panel = new PendingInputPanel(palette, mdTheme, t)
+    for (let index = 0; index < 10; index++) {
+      panel.insert(createUserMessage({
+        content: [{ type: 'text', text: `消息-${index}` }],
+        source: { kind: 'user' },
+      }))
+    }
+
+    const rendered = panel.render(48).join('\n')
+    assert.match(rendered, /省略较早的 8 条/)
+    assert.doesNotMatch(rendered, /消息-0/)
+    assert.match(rendered, /消息-8[\s\S]*消息-9/)
+  })
+
   it('projects only direct user messages when synchronizing an inbox', () => {
     const panel = new PendingInputPanel(palette, mdTheme, t)
     const direct = createUserMessage({
@@ -74,7 +89,7 @@ describe('composer steer projection', () => {
     }))
 
     const rows = panel.render(24)
-    assert.match(rows.at(-2)!, /…/)
+    assert.match(rows.join('\n'), /…/)
     assert.equal(rows.at(-1), '')
   })
 })

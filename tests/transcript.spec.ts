@@ -585,6 +585,29 @@ describe('composer chrome', () => {
     ])
   })
 
+  it('places the cursor at the end of recalled history', () => {
+    const identity = (text: string): string => text
+    const editor = new Editor({
+      terminal: { rows: 24 },
+      requestRender: () => undefined,
+    } as never, {
+      borderColor: identity,
+      selectList: {
+        selectedPrefix: identity,
+        selectedText: identity,
+        description: identity,
+        scrollInfo: identity,
+        noMatch: identity,
+      },
+    })
+    editor.addToHistory('/help')
+
+    editor.handleInput('\x1b[A')
+
+    assert.equal(editor.getText(), '/help')
+    assert.deepEqual(editor.getCursor(), { line: 0, col: '/help'.length })
+  })
+
   it('submits an exact slash-command argument with one Enter press', async () => {
     const identity = (text: string): string => text
     const editor = new Editor({

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseTuiPromptTemplate, renderTuiPromptTemplate } from '../src/prompt.ts'
-import { contentText, parseArguments } from '../src/components/content.ts'
+import { contentText, hasContentText, parseArguments } from '../src/components/content.ts'
 import { displayInlineText, displayText } from '../src/components/text.ts'
 
 describe('parseTuiPromptTemplate', () => {
@@ -40,6 +40,17 @@ describe('contentText', () => {
       { type: 'image', attachment: {} as never },
     ])
     assert.equal(text, 'think\n\nanswer')
+  })
+
+  it('detects visible text without flattening every block', () => {
+    assert.equal(hasContentText([
+      { type: 'text', text: '   ' },
+      { type: 'reasoning', text: '\nanswer' },
+    ]), true)
+    assert.equal(hasContentText([
+      { type: 'text', text: '   ' },
+      { type: 'image', attachment: {} as never },
+    ]), false)
   })
 })
 

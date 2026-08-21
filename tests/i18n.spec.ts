@@ -31,6 +31,7 @@ describe('translator', () => {
     )
     assert.equal(t('noticeReloadedConfig'), 'Profile 配置已重新载入并生效。')
     assert.equal(t('noticeReloadUnchanged'), 'Profile 插件已是最新配置，无需重新载入。')
+    assert.equal(t('queuedSteerOmitted', { count: 4 }), '… 省略较早的 4 条')
   })
 
   it('switches to English when requested', () => {
@@ -42,6 +43,7 @@ describe('translator', () => {
     )
     assert.equal(t('noticeReloadedConfig'), 'Profile configuration reloaded and applied.')
     assert.equal(t('noticeReloadUnchanged'), 'Profile plugins are already up to date.')
+    assert.equal(t('queuedSteerOmitted', { count: 4 }), '… 4 earlier queued')
   })
 
   it('leaves unknown placeholders untouched and keeps missing keys safe', () => {

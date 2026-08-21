@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@earendil-works/pi-tui@0.80.7': 77cbb1a6c334520034b40a6956ca9f0d85c62b0b35f999dc0ba4ee2350c4fa2f
+  '@earendil-works/pi-tui@0.80.7': e4552f8529b4f756eb289761cc9397285971d1668235ed7059a63b2f7d8938ba
 
 importers:
 
@@ -101,7 +101,7 @@ importers:
         version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-agent@0.1.0-rc.8(163ec746819ca45896bc0b506439513f))(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-llm@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))))
       '@earendil-works/pi-tui':
         specifier: 0.80.7
-        version: 0.80.7(patch_hash=77cbb1a6c334520034b40a6956ca9f0d85c62b0b35f999dc0ba4ee2350c4fa2f)
+        version: 0.80.7(patch_hash=e4552f8529b4f756eb289761cc9397285971d1668235ed7059a63b2f7d8938ba)
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.1
@@ -1383,7 +1383,7 @@ snapshots:
       '@deepseek-ai/cosmokit': 1.8.2
       '@standard-schema/spec': 1.1.0
 
-  '@earendil-works/pi-tui@0.80.7(patch_hash=77cbb1a6c334520034b40a6956ca9f0d85c62b0b35f999dc0ba4ee2350c4fa2f)':
+  '@earendil-works/pi-tui@0.80.7(patch_hash=e4552f8529b4f756eb289761cc9397285971d1668235ed7059a63b2f7d8938ba)':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5

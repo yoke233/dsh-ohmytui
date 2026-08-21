@@ -15,6 +15,12 @@ export function contentText(content: readonly ContentBlock[]): string {
     .join('\n\n')
 }
 
+/** Return as soon as a text/reasoning block contains one visible character. */
+export function hasContentText(content: readonly ContentBlock[]): boolean {
+  return content.some(block =>
+    (block.type === 'text' || block.type === 'reasoning') && /\S/.test(block.text))
+}
+
 /** Parsed tool arguments: valid JSON when the model produced any, else the raw string. */
 export type ParsedArguments =
   | { readonly valid: true; readonly value: unknown }

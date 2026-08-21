@@ -1,5 +1,5 @@
 diff --git a/dist/components/editor.d.ts b/dist/components/editor.d.ts
-index a6fedc9e3b36d066e34860d040db6df47d88c432..f0b20eb87686215d1d1a54274a7b1ebdf4030ef1 100644
+index a6fedc9e3b36d066e34860d040db6df47d88c432..9d896aad93b1bc60da04ea0d6dbb3c7253fe419a 100644
 --- a/dist/components/editor.d.ts
 +++ b/dist/components/editor.d.ts
 @@ -21,7 +21,7 @@ export interface TextChunk {
@@ -38,7 +38,7 @@ index a6fedc9e3b36d066e34860d040db6df47d88c432..f0b20eb87686215d1d1a54274a7b1ebd
       * Add a prompt to history for up/down arrow navigation.
       * Called after successful submission.
 diff --git a/dist/components/editor.js b/dist/components/editor.js
-index 6c03aeec4148571558713e885ac7f7df18a511bc..213f47d53a36608888ca96def0a4215b6438a5f6 100644
+index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb5b1d30df 100644
 --- a/dist/components/editor.js
 +++ b/dist/components/editor.js
 @@ -79,7 +79,7 @@ function segmentWithMarkers(text, baseSegmenter, validIds) {
@@ -149,6 +149,15 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..213f47d53a36608888ca96def0a4215b
      /** Set of currently valid paste IDs, for marker-aware segmentation. */
      validPasteIds() {
          return new Set(this.pastes.keys());
+@@ -338,7 +371,7 @@ export class Editor {
+             }
+         }
+         else {
+-            this.setTextInternal(this.history[this.historyIndex] || "", direction === -1 ? "start" : "end");
++            this.setTextInternal(this.history[this.historyIndex] || "");
+         }
+     }
+     exitHistoryBrowsing() {
 @@ -364,14 +397,17 @@ export class Editor {
          const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
          const paddingX = Math.min(this.paddingX, maxPadding);

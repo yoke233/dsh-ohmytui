@@ -13,6 +13,7 @@ import type { AskUserQuestionAnswerItem, AskUserQuestionItem } from '@deepseek-a
 import { frameBlock, selectTheme, type ColorRole, type Palette } from '../theme.ts'
 import type { Translator } from '../i18n.ts'
 import { displayText } from './text.ts'
+import { ModelPickerDialog, type ModelItem } from './model-picker-dialog.ts'
 
 /** A framed overlay hosting a single-select list. Resolves on Enter or Esc. */
 export class SelectDialog implements Component {
@@ -396,10 +397,7 @@ async function pickOne(
   return showOverlay(ui, (done) => new SelectDialog(title, entries, palette, done))
 }
 
-/**
- * The `/model` flow: provider → model → optional reasoning effort, committing
- * the selection through the caller's saver when one is supplied.
- */
+/** The `/model` flow rendered as one provider/model/thinking screen. */
 export async function runModelFlow(
   ui: TUI,
   palette: Palette,
@@ -407,66 +405,30 @@ export async function runModelFlow(
   llm: LlmRuntime,
   save: (selection: ModelSelection) => Promise<void>,
 ): Promise<ModelSelection | undefined> {
-  const CUSTOM_MODEL = '\u0000custom-model'
-  const providerEntries = llm.listProviders().map(entry => ({
-    id: entry.id,
-    name: entry.name,
-  }))
-  const provider = await pickOne(ui, palette, t('modelProvider'), providerEntries.map(entry => ({
-    value: entry.id,
-    label: entry.name,
-  })))
-  if (provider === undefined) return undefined
-
-  let models: Array<{ id: string; name?: string }> = []
-  try {
-    const found = await llm.listModels(provider)
-    models = found.map(entry => ({ id: entry.id, name: entry.name }))
-  } catch {
-    // Keep the custom model entry available when the adapter has no catalog.
-  }
-
-  const modelEntries = [
-    ...models.map(entry => ({
-      value: entry.id,
-      label: entry.id,
-      description: entry.name === undefined ? undefined : displayText(entry.name),
-    })),
-    { value: CUSTOM_MODEL, label: t('settingsCustomModel') },
-  ]
-  const picked = await pickOne(ui, palette, t('modelTitle', { provider }), modelEntries)
-  if (picked === undefined) return undefined
-  let model = picked
-  if (picked === CUSTOM_MODEL) {
-    const custom = await showOverlay<string>(
-      ui,
-      done => new InputDialog(t('modelTitle', { provider }), palette, done, t),
-    )
-    if (custom === undefined || custom.trim() === '') return undefined
-    model = custom.trim()
-  }
-
-  let reasoningEffort: string | undefined
-  try {
-    const resolved = await llm.resolveModelInfo(provider, model)
-    const efforts = resolved.reasoning?.efforts
-    if (efforts !== undefined && efforts.length > 1) {
-      const picked = await pickOne(ui, palette, t('modelEffort'), efforts.map(entry => ({
-        value: entry.id,
-        label: entry.name,
-        description: entry.description,
-      })))
-      if (picked === undefined) return undefined
-      reasoningEffort = picked
+  const items: ModelItem[] = []
+  for (const provider of llm.listProviders()) {
+    let models: Array<{ id: string; name?: string }> = []
+    try { models = await llm.listModels(provider.id) } catch { /* provider has no catalog */ }
+    for (const model of models) {
+      let info: any
+      try { info = await llm.resolveModelInfo(provider.id, model.id) } catch { /* metadata is optional */ }
+      items.push({
+        provider: provider.id,
+        providerName: provider.name,
+        id: model.id,
+        name: model.name === undefined ? undefined : displayText(model.name),
+        context: info?.contextWindow ?? info?.context?.tokens ?? info?.maxContextTokens,
+        efforts: (info?.reasoning?.efforts ?? []).map((effort: any) => ({ id: effort.id, name: effort.name ?? effort.id })),
+      })
     }
-  } catch {
-    // Providers may accept dynamic model ids without exposing metadata.
   }
-  const selection: ModelSelection = {
-    provider,
-    model,
-    ...reasoningEffort === undefined ? {} : { reasoningEffort: reasoningEffort as ModelSelection['reasoningEffort'] },
-  }
+  if (items.length === 0) return undefined
+  const selection = await showOverlay<ModelSelection>(
+    ui,
+    done => new ModelPickerDialog(items, palette, t, done),
+    { width: '95%', maxHeight: '90%' },
+  )
+  if (selection === undefined) return undefined
   await save(selection)
   return selection
 }

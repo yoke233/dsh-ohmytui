@@ -254,8 +254,9 @@ describe('profile reload runtime', () => {
     )
     try {
       const sentinel = ctx.get('reloadSentinel')
+      const tui = ctx.get('tui')
       assert.deepEqual(sentinel, { active: true })
-      assert.equal(tuiVersion(ctx.get('tui')), 'v1')
+      assert.equal(tuiVersion(tui), 'v1')
       writeFileSync(profileManifest, JSON.stringify({
         name: 'dsh-profile-tui',
         private: true,
@@ -288,7 +289,8 @@ describe('profile reload runtime', () => {
       assert.deepEqual(updated.removedBundles, [])
       assert.equal(ctx.get('reloadProbe'), undefined)
       assert.equal(ctx.get('reloadSentinel'), sentinel)
-      assert.equal(tuiVersion(ctx.get('tui')), 'v2')
+      assert.equal(ctx.get('tui'), tui)
+      assert.equal(tuiVersion(ctx.get('tui')), 'v1')
 
 
       writeFileSync(profileManifest, JSON.stringify({
@@ -301,7 +303,8 @@ describe('profile reload runtime', () => {
       assert.deepEqual(removed.removedBundles, ['reload-fixture'])
       assert.equal(ctx.get('reloadProbe'), undefined)
       assert.equal(ctx.get('reloadSentinel'), sentinel)
-      assert.equal(tuiVersion(ctx.get('tui')), 'v2')
+      assert.equal(ctx.get('tui'), tui)
+      assert.equal(tuiVersion(ctx.get('tui')), 'v1')
     } finally {
       await ctx.fiber.dispose()
       rmSync(home, { recursive: true, force: true })
