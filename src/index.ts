@@ -104,6 +104,7 @@ import {
   UserMessageComponent,
   type ToolCardVisibility,
 } from './components/transcript.ts'
+import { PendingInputPanel } from './components/pending-input.ts'
 import {
   CommandHintComponent,
   ComposerFooterComponent,
@@ -439,6 +440,7 @@ export class Tui extends Service {
     let statusLine = new StatusLineComponent(leftTemplate, promptValue, palette)
     const todoPanel = new TodoPanelComponent(palette)
     const subagentPanel = new SubagentPanelComponent(palette)
+    const pendingInputPanel = new PendingInputPanel(palette, mdTheme, t)
     const noticeSlot = new Container()
     const notice = new Text('', 1, 0)
     const askSlot = new Container()
@@ -452,7 +454,7 @@ export class Tui extends Service {
     /** Lines consumed by every root child below the transcript viewport. */
     const computeTranscriptHeight = (width: number): number => {
       let used = 0
-      for (const child of [todoPanel, subagentPanel, noticeSlot, statusLine, askSlot, editor, commandHint, inputBorder, footer]) {
+      for (const child of [todoPanel, subagentPanel, pendingInputPanel, noticeSlot, statusLine, askSlot, editor, commandHint, inputBorder, footer]) {
         used += child.render(width).length
       }
       return Math.max(1, ui.terminal.rows - used)
@@ -464,6 +466,7 @@ export class Tui extends Service {
       ui.addChild(chat)
       ui.addChild(todoPanel)
       ui.addChild(subagentPanel)
+      ui.addChild(pendingInputPanel)
       ui.addChild(noticeSlot)
       ui.addChild(statusLine)
       ui.addChild(askSlot)
@@ -500,6 +503,13 @@ export class Tui extends Service {
       const indicator = ctx.tuiPrompt.get('indicator') ?? ''
       const first = indicator === '' ? '' : `${indicator} `
       editor.setPrompt({ first, continuation: ' '.repeat(visibleWidth(first)) })
+    }
+
+    const refreshPendingInput = (): void => {
+      queuedValue.set(pendingInputPanel.count === 0
+        ? undefined
+        : palette.muted(` ${t('queuedSteer', { count: pendingInputPanel.count })}`))
+      ui.requestRender()
     }
 
     const appendNotice = (text: string, kind: 'info' | 'warning' | 'error'): void => {
@@ -670,7 +680,9 @@ export class Tui extends Service {
       const permissionText = permissionRole(displayText(displayPermissionName(permission)))
       permissionValue.set(` ${palette.muted('·')} ${permissionText}`)
       permissionCompactValue.set(permissionText)
-      queuedValue.set(undefined)
+      queuedValue.set(pendingInputPanel.count === 0
+        ? undefined
+        : palette.muted(` ${t('queuedSteer', { count: pendingInputPanel.count })}`))
       symbolValue.set(undefined)
       updateInputPrompt()
     }
@@ -737,6 +749,7 @@ export class Tui extends Service {
     const renderEvent = (event: SessionEvent, syncStatus = true, notify = true): void => {
       switch (event.type) {
         case 'user/message': {
+          if (pendingInputPanel.remove(event.data.id)) refreshPendingInput()
           const source = event.data.source
           const text = displayText(contentText(event.data.content).trim())
           if (text === '') break
@@ -815,6 +828,10 @@ export class Tui extends Service {
           }
           break
         case 'turn/end': {
+          if (live && notify && agent !== undefined) {
+            pendingInputPanel.sync([...agent.inbox.nextStep, ...agent.inbox.nextTurn])
+            refreshPendingInput()
+          }
           // Detach the live streaming slot so straggler chunks that arrive
           // after an abort cannot keep appending to the interrupted step;
           // its rendered partial content stays in the transcript.
@@ -1104,7 +1121,7 @@ export class Tui extends Service {
             return
           }
           recordActivePreset(current)
-          current.followup(createUserMessage({
+          current.steer(createUserMessage({
             content: [{ type: 'text', text: renderSkillContent(definition) }],
             source: { kind: 'skill-invocation', name, form: 'instructions' },
           }))
@@ -2651,14 +2668,14 @@ export class Tui extends Service {
               [{ type: 'text', text: parsed.text }],
               parsed.references,
             )
-            // Inject first (queues context without waking), then follow up:
-            // the waking driver claims both at the next pre-step, so the
-            // model sees the referenced snapshot from the first step.
+            // Inject first (queues context without waking), then steer: the
+            // waking driver claims both at the nearest pre-step, so the model
+            // sees the referenced snapshot with this input.
             if (prepared.additionalContext !== undefined) {
               current.inject(prepared.additionalContext)
             }
             recordActivePreset(current)
-            current.followup(createUserMessage({ content: prepared.content, source: { kind: 'user' } }))
+            current.steer(createUserMessage({ content: prepared.content, source: { kind: 'user' } }))
             refreshTitle()
           } catch (error: unknown) {
             appendNotice(t('noticeReferenceFailed', { error: errorChain(error) }), 'error')
@@ -2667,7 +2684,7 @@ export class Tui extends Service {
         return
       }
       recordActivePreset(current)
-      current.followup(createUserMessage({
+      current.steer(createUserMessage({
         content: [{ type: 'text', text }],
         source: { kind: 'user' },
       }))
@@ -2739,6 +2756,8 @@ export class Tui extends Service {
     // --- mount: run once the configured agent is live -------------------------
     let offEvent: (() => void) | undefined
     let offStatus: (() => void) | undefined
+    let offInboxInserted: (() => void) | undefined
+    let offInboxDiscarded: (() => void) | undefined
     let offCommandsChange: (() => void) | undefined
     let offScheme: (() => void) | undefined
     let offModelSelection: (() => void) | undefined
@@ -3044,9 +3063,23 @@ export class Tui extends Service {
           appendNotice(t('noticeEventRenderFailed', { error: errorChain(error) }), 'error')
         }
       }
+      const subscribeInbox = (target: Agent): void => {
+        offInboxInserted?.()
+        offInboxDiscarded?.()
+        pendingInputPanel.sync([...target.inbox.nextStep, ...target.inbox.nextTurn])
+        refreshPendingInput()
+        offInboxInserted = ctx.on('agent/inbox/inserted', ({ agent: candidate, message }) => {
+          if (candidate !== target || !pendingInputPanel.insert(message)) return
+          refreshPendingInput()
+        })
+        offInboxDiscarded = ctx.on('agent/inbox/discarded', ({ agent: candidate, message }) => {
+          if (candidate !== target || !pendingInputPanel.remove(message.id)) return
+          refreshPendingInput()
+        })
+      }
       offEvent = ctx.on('session/event', (session, event) => handleSessionEvent(liveAgent.session.id, session, event))
-
       offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => handleAgentStatus(liveAgent.id, candidate, status))
+      subscribeInbox(liveAgent)
 
       offScheme = ui.onTerminalColorSchemeChange((scheme) => {
         try {
@@ -3081,6 +3114,8 @@ export class Tui extends Service {
         const previousHandle = activeHandle
         offEvent?.()
         offStatus?.()
+        offInboxInserted?.()
+        offInboxDiscarded?.()
         offModelSelection?.()
         const nextSelection = selectionFor(next)
         selectionRef.current = nextSelection
@@ -3105,6 +3140,7 @@ export class Tui extends Service {
         )
         offEvent = ctx.on('session/event', (session, event) => handleSessionEvent(next.session.id, session, event))
         offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => handleAgentStatus(next.id, candidate, status))
+        subscribeInbox(next)
         rebuildTranscript()
         live = true
         setStatus(next.status)
@@ -3294,6 +3330,8 @@ export class Tui extends Service {
       offKeys()
       offEvent?.()
       offStatus?.()
+      offInboxInserted?.()
+      offInboxDiscarded?.()
       offCommandsChange?.()
       offScheme?.()
       offModelSelection?.()

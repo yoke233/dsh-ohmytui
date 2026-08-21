@@ -499,7 +499,7 @@ interface Config {
 2. **取 agent**：`ctx.agents.get(sessionId)` → `Agent`；`agent.session.events` 为不可变日志快照。
 3. **渲染主通道**：`session/event` 事件（追加后馈送）+ 初始 `agent.session.events` 重放（种子不发出）。
 4. **状态**：`agent/status` 事件 → 编辑框边框/指示器；`agent.session.header.cwd` 为 workspace。
-5. **提交输入**：`agent.followup(createUserMessage({ content, source: { kind: 'user' } }))`。
+5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；idle 时启动回合，running 时由最近的下一 step 领取。`agent/inbox/inserted` 立即投影到待处理面板，正式 `user/message` 到达后按 message id 移除预览并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。
 6. **中断**：`agent.cancel({ kind: 'user' })`。
 7. **提问**：`ctx.userQuestions.registerProvider(provider)`；对话框完成后 resolve `AskUserQuestionAnswer`。
 8. **命令**：`ctx.commands.execute(agent, line, images, signal)`（rc8 起必须传 `images`，TUI 当前传 `[]`）；`/help` 列表用 `ctx.commands.list(agent)`。

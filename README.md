@@ -177,6 +177,8 @@ dsh --profile tui --resume <session-id>
 
 `--resume` 与 `--session` 互斥。新会话只有在首次产生用户消息、助手消息或工具调用后才会落库；空白会话不会出现在 `/resume` 列表中。
 
+编辑框提交的普通消息默认使用 `steer`：空闲时启动新回合，运行中则进入当前回合最近的下一步。消息从编辑框清空后会立即显示在 `steer · 待处理` 面板；agent 将其写入正式 `user/message` 事件后，面板项自动移入 transcript。
+
 ### 快捷键
 
 | 快捷键 | 作用 |

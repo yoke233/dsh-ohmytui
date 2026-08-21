@@ -4,6 +4,7 @@
 
 - 新增 `/reload`：在当前 TUI 进程内重新读取 Profile Bundle 清单及用户 patch，并通过 Loader 事务性装卸插件；当前会话和输入组件保持挂载，失败时保留上一棵可用插件树
 - 命令注册变化会实时刷新 Slash Command 补全，新安装插件贡献的命令在 `/reload` 完成后立即可见
+- 编辑框普通消息默认通过 `steer` 进入最近 step；提交后在待处理面板即时回显，写入正式 `user/message` 后自动移入 transcript
 
 ## [0.2.3] - 2026-08-20
 

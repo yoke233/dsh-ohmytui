@@ -61,6 +61,7 @@ export type Messages = {
   cmdSettings: string
   helpPermission: string
   cmdPermission: string
+  queuedSteer: string
   // --- notices ------------------------------------------------------------
   noticeNoSessions: string
   noticeSessionListFailed: string
@@ -303,6 +304,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdTheme: '查看或切换主题',
     helpPermission: '切换权限模式（沙箱 + 审批策略）',
     cmdPermission: '切换权限模式（沙箱 + 审批策略）',
+    queuedSteer: 'steer · 待处理（{count}）',
     noticeNoSessions: '没有持久化会话。',
     noticeSessionListFailed: '会话列表获取失败：{error}',
     noticeNoSkills: '没有可用技能。',
@@ -540,6 +542,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdSettings: 'Open visual settings',
     helpPermission: 'switch permission mode (sandbox + approval policy)',
     cmdPermission: 'Switch permission mode (sandbox + approval policy)',
+    queuedSteer: 'steer · queued ({count})',
     noticeNoSessions: 'No persisted sessions.',
     noticeSessionListFailed: 'Session listing failed: {error}',
     noticeNoSkills: 'No skills available.',

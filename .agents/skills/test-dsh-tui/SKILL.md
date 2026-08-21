@@ -45,6 +45,12 @@ Run the Profile plugin add/reload/remove scenario:
 powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload
 ```
 
+Run the network-free, controlled-model scenario for running-turn input, immediate preview, and steer delivery:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario steer -KeepArtifacts
+```
+
 The runner builds and packs the current working tree, initializes an isolated `tui` Profile, starts real `dsh` in ConPTY, feeds input, and reconstructs the current terminal screen. With `-KeepArtifacts`, it records raw output plus text/SVG/PNG snapshots and installs `sharp` for PNG conversion; `node-pty` and `@xterm/headless` live only in the temporary harness. Common key/token/secret environment variables are withheld from the TUI by default.
 
 A successful JSON report is the acceptance artifact. For process-continuity scenarios, every observed DSH PID must be identical; a rendered success message alone is insufficient. Use `-AllowModelRequests` only for an explicit real-model scenario that needs inherited credentials.
