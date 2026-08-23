@@ -987,8 +987,6 @@ export class Tui extends Service {
         ui.requestRender()
         return
       }
-      // The TUI presents the unrestricted preset as `full-access`; the host
-      // registry still knows it as `danger-full-access`, so translate before
       if (line === '/context' || line.startsWith('/context ')) {
         try {
           const measurement = ctx.tokenMeter.measure(current.session)
@@ -1020,6 +1018,8 @@ export class Tui extends Service {
         }
         return
       }
+      // The TUI presents the unrestricted preset as `full-access`; the host
+      // registry still knows it as `danger-full-access`, so translate before
       // handing the slash command to the backend.
       const permissionMatch = /^\/permission(?:\s+(.*))?$/.exec(line)
       if (permissionMatch !== null) {
@@ -1202,6 +1202,7 @@ export class Tui extends Service {
               removed: result.removedBundles.length,
             }), 'info')
           }
+          await ctx.tuiReload.reloadTuiCode()
         } catch (error: unknown) {
           appendNotice(t('noticeReloadFailed', { error: errorChain(error) }), 'error')
         }
@@ -2625,10 +2626,10 @@ export class Tui extends Service {
           `/mode — ${t('helpMode')}`,
           `/theme — ${t('helpTheme')}`,
           `/settings — ${t('helpSettings')}`,
+          `/context — ${t('helpContext')}`,
           ...commandRows,
         ]
         chat.addChild(new StaticCardComponent(rows, palette))
-          `/context — ${t('helpContext')}`,
         ui.requestRender()
         return
       }
@@ -2981,10 +2982,10 @@ export class Tui extends Service {
           },
         },
         { name: 'settings', description: t('cmdSettings') },
+        { name: 'context', description: t('cmdContext') },
       ]
       const builtinCommandNames = new Set(builtinCommandEntries.map(command => command.name))
       const commandEntries: SlashCommand[] = [...builtinCommandEntries]
-        { name: 'context', description: t('cmdContext') },
       const skillCommandNames = new Set<string>()
       const registeredCommandEntries = (target: Agent): SlashCommand[] => ctx.commands.list(target)
         .filter(command => !builtinCommandNames.has(command.name))

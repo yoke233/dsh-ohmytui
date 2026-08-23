@@ -844,17 +844,27 @@ export class TodoPanelComponent implements Component {
 
   private renderUncached(width: number): string[] {
     if (this.todos.length === 0 && this.goal === undefined) return []
-    const lines: string[] = [this.palette.bold(this.palette.accent(' Plan'))]
+
+    const completed = this.todos.filter(todo => todo.status === 'completed').length
+    const progress = this.todos.length === 0 ? '' : this.palette.dim(`  ${completed}/${this.todos.length}`)
+    const rail = this.palette.borderMuted('│')
+    const lines: string[] = [
+      '',
+      `  ${this.palette.borderMuted('╭─')} ${this.palette.bold(this.palette.accent(' Plan'))}${progress}`,
+    ]
+
     if (this.goal !== undefined) {
-      lines.push(this.palette.dim(`Goal · ${this.goal.phase}: ${displayText(this.goal.objective)}`))
+      lines.push(`  ${rail}  ${this.palette.dim(`Goal · ${this.goal.phase}: ${displayText(this.goal.objective)}`)}`)
     }
     for (const todo of this.todos) {
       const mark = todo.status === 'completed' ? '󰄲' : todo.status === 'in_progress' ? '' : ''
       const color = todo.status === 'completed'
         ? this.palette.dim
         : todo.status === 'in_progress' ? this.palette.accent : this.palette.text
-      lines.push(color(`${mark} ${displayText(todo.content)}`))
+      lines.push(`  ${rail}  ${color(`${mark} ${displayText(todo.content)}`)}`)
     }
+    lines.push(`  ${this.palette.borderMuted('╰─')}`, '')
+
     return lines.map(line => truncateToWidth(line, Math.max(1, width), ''))
   }
 }

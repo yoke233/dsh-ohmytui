@@ -272,6 +272,21 @@ describe('transcript components respect the render width', () => {
     }
   })
 
+  it('renders todo panels as padded progress rails', () => {
+    const todo = new TodoPanelComponent(palette)
+    todo.setTodos([
+      { content: 'active task', status: 'in_progress' },
+      { content: 'pending task', status: 'pending' },
+      { content: 'done task', status: 'completed' },
+    ])
+    const rows = todo.render(80)
+    assert.equal(rows[0], '')
+    assert.equal(rows.at(-1), '')
+    assert.ok(rows.some(row => row.includes('Plan') && row.includes('1/3')))
+    assert.ok(rows.some(row => row.includes('│') && row.includes('active task')))
+    assert.ok(rows.filter(Boolean).every(row => row.startsWith('  ')))
+  })
+
   it('the banner stays within width', () => {
     const agent = {
       options: { model: 'deepseek-v4-pro', provider: 'deepseek-official' },

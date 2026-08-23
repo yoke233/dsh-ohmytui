@@ -45,6 +45,12 @@ Run the Profile plugin add/reload/remove scenario:
 powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload
 ```
 
+Run the packaged same-process TUI code replacement scenario:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload-code
+```
+
 Run the network-free, controlled-model scenario for running-turn input, immediate preview, and steer delivery:
 
 ```powershell

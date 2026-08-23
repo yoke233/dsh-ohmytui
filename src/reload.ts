@@ -29,6 +29,60 @@ export interface ProfileReloadResult {
   readonly removedBundles: readonly string[]
 }
 
+/** Minimal Node module-loader surface needed to resolve one loaded plugin entry. */
+export type ReloadableModuleLoader = {
+  readonly version: 'v1'
+  readonly loadCache: { get(url: string): unknown }
+  resolve(specifier: string, parentURL: string, attributes: ImportAttributes): Promise<{ url: string }>
+} | {
+  readonly version: 'v2'
+  readonly loadCache: { get(url: string): unknown }
+  resolveSync(parentURL: string, request: { specifier: string; attributes: ImportAttributes }): { url: string }
+}
+
+/** Runtime HMR hooks used to force-refresh an already loaded entry module. */
+export interface ReloadableHmr {
+  readonly stashed: Set<string>
+  partialReload(): Promise<void>
+}
+
+/** Loader entry metadata needed to find and resolve a nested live plugin. */
+export interface ReloadableEntry {
+  readonly options: { readonly id?: unknown; readonly name: string }
+  readonly parent: { readonly tree: { readonly ctx: { readonly baseUrl?: string } } }
+}
+
+/** Find an entry across the complete Loader tree rather than one local group. */
+export function findLoadedEntry(entries: Iterable<ReloadableEntry>, id: string): ReloadableEntry | undefined {
+  return [...entries].find(entry => entry.options.id === id)
+}
+
+/** Resolve one configured plugin specifier exactly like Cordis HMR does. */
+export async function resolveLoadedModuleUrl(
+  internal: ReloadableModuleLoader,
+  specifier: string,
+  parentURL: string,
+): Promise<string> {
+  if (internal.version === 'v1') return (await internal.resolve(specifier, parentURL, {})).url
+  return internal.resolveSync(parentURL, { specifier, attributes: {} }).url
+}
+
+/** Force Cordis HMR to evict, re-import, and replace one loaded plugin module. */
+export async function forceReloadLoadedModule(
+  hmr: ReloadableHmr,
+  internal: ReloadableModuleLoader,
+  url: string,
+): Promise<void> {
+  const previous = internal.loadCache.get(url)
+  if (previous === undefined) throw new Error(`tui reload: module is not present in the live loader cache: ${url}`)
+  hmr.stashed.add(url)
+  await hmr.partialReload()
+  const current = internal.loadCache.get(url)
+  if (current === undefined || current === previous) {
+    throw new Error(`tui reload: Cordis HMR did not replace the live module: ${url}`)
+  }
+}
+
 /** Dependencies used by the serialized reload coordinator. */
 export interface ProfileReloadRuntimeOptions {
   readonly initial: ProfileReloadGeneration
@@ -172,6 +226,7 @@ export class TuiReload extends Service {
   static inject = ['loader']
 
   private readonly runtime: ProfileReloadRuntime
+  private readonly reloadTuiModule: () => Promise<void>
 
   constructor(ctx: Context) {
     super(ctx, 'tuiReload')
@@ -206,6 +261,20 @@ export class TuiReload extends Service {
     const loaded = loadGeneration()
     const initial = loaded.generation
     const launcherPatches = captureLauncherPatches(initialConfig.patches ?? [], initial)
+    this.reloadTuiModule = async () => {
+      const tuiEntry = findLoadedEntry(loader.entries() as Iterable<ReloadableEntry>, 'tui')
+      if (tuiEntry === undefined) throw new Error('tui reload: active TUI entry is not mounted')
+      const parentURL = tuiEntry.parent.tree.ctx.baseUrl
+      if (parentURL === undefined) throw new Error('tui reload: active TUI entry has no base URL')
+      const internal = loader.internal as ReloadableModuleLoader | undefined
+      if (internal === undefined) throw new Error('tui reload: live module loader internals are unavailable')
+      const hmr = ctx.get('hmr', false) as unknown as ReloadableHmr | undefined
+      if (hmr === undefined || !(hmr.stashed instanceof Set) || typeof hmr.partialReload !== 'function') {
+        throw new Error('tui reload: Cordis HMR module refresh is unavailable')
+      }
+      const url = await resolveLoadedModuleUrl(internal, tuiEntry.options.name, parentURL)
+      await forceReloadLoadedModule(hmr, internal, url)
+    }
     let watcherFiberUid: number | undefined
     let watcherClaim: Promise<void> | undefined
     const ensureReloadWatchers = (): Promise<void> => {
@@ -277,6 +346,11 @@ export class TuiReload extends Service {
   /** Re-read and transactionally apply the complete live profile. */
   reload(): Promise<ProfileReloadResult> {
     return this.runtime.reload()
+  }
+
+  /** Evict and hot-replace the active TUI entry module while keeping the process alive. */
+  reloadTuiCode(): Promise<void> {
+    return this.reloadTuiModule()
   }
 }
 

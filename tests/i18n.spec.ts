@@ -29,8 +29,8 @@ describe('translator', () => {
       t('noticeTurnFailed', { code: 'INVALID_CREDENTIAL', error: 'token rejected' }),
       '回合失败（INVALID_CREDENTIAL）：token rejected',
     )
-    assert.equal(t('noticeReloadedConfig'), 'Profile 配置已重新载入并生效。')
-    assert.equal(t('noticeReloadUnchanged'), 'Profile 插件已是最新配置，无需重新载入。')
+    assert.equal(t('noticeReloadedConfig'), 'Profile 配置已更新，正在刷新 TUI。')
+    assert.equal(t('noticeReloadUnchanged'), 'Profile 配置未变化，正在刷新 TUI 代码。')
     assert.equal(t('queuedSteerOmitted', { count: 4 }), '… 省略较早的 4 条')
   })
 
@@ -41,8 +41,8 @@ describe('translator', () => {
       t('noticeTurnFailed', { code: 'RATE_LIMIT', error: 'try later' }),
       'Turn failed (RATE_LIMIT): try later',
     )
-    assert.equal(t('noticeReloadedConfig'), 'Profile configuration reloaded and applied.')
-    assert.equal(t('noticeReloadUnchanged'), 'Profile plugins are already up to date.')
+    assert.equal(t('noticeReloadedConfig'), 'Profile configuration updated; refreshing the TUI.')
+    assert.equal(t('noticeReloadUnchanged'), 'Profile configuration is unchanged; refreshing live TUI code.')
     assert.equal(t('queuedSteerOmitted', { count: 4 }), '… 4 earlier queued')
   })
 

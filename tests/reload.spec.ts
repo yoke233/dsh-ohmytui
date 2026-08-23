@@ -10,8 +10,13 @@ import {
   ProfileReloadRuntime,
   assertEntriesPreserved,
   captureLauncherPatches,
+  findLoadedEntry,
+  forceReloadLoadedModule,
   profileOwnedPatches,
+  resolveLoadedModuleUrl,
   type ProfileReloadGeneration,
+  type ReloadableHmr,
+  type ReloadableModuleLoader,
 } from '../src/reload.ts'
 
 function generation(
@@ -36,6 +41,67 @@ function tuiVersion(value: unknown): string {
 }
 
 describe('profile reload runtime', () => {
+  it('finds the nested TUI entry across the complete loader tree', () => {
+    const base = { parent: { tree: { ctx: { baseUrl: 'file:///profile/' } } } }
+    const entries = [
+      { ...base, options: { id: 'include', name: 'cordis:include' } },
+      { ...base, options: { id: 'tui', name: 'dsh-omp-tui' } },
+    ]
+    assert.equal(findLoadedEntry(entries, 'tui'), entries[1])
+  })
+
+  it('resolves Node 22 and Node 24 plugin module URLs', async () => {
+    const v1 = {
+      version: 'v1',
+      loadCache: new Map(),
+      resolve: async (specifier: string, parentURL: string) => ({ url: `${parentURL}${specifier}` }),
+    } as ReloadableModuleLoader
+    const v2 = {
+      version: 'v2',
+      loadCache: new Map(),
+      resolveSync: (parentURL: string, request: { specifier: string }) => ({ url: `${parentURL}${request.specifier}` }),
+    } as ReloadableModuleLoader
+
+    assert.equal(await resolveLoadedModuleUrl(v1, 'tui.js', 'file:///app/'), 'file:///app/tui.js')
+    assert.equal(await resolveLoadedModuleUrl(v2, 'tui.js', 'file:///app/'), 'file:///app/tui.js')
+  })
+
+  it('forces HMR to replace the cached live TUI module', async () => {
+    const url = 'file:///app/tui.js'
+    const first = { generation: 1 }
+    const cache = new Map<string, unknown>([[url, first]])
+    const internal = {
+      version: 'v1',
+      loadCache: cache,
+      resolve: async () => ({ url }),
+    } as ReloadableModuleLoader
+    const hmr = {
+      stashed: new Set<string>(),
+      partialReload: async () => {
+        assert.deepEqual([...hmr.stashed], [url])
+        cache.set(url, { generation: 2 })
+      },
+    } satisfies ReloadableHmr
+
+    await forceReloadLoadedModule(hmr, internal, url)
+    assert.notEqual(cache.get(url), first)
+  })
+
+  it('reports a failed HMR replacement instead of claiming reload succeeded', async () => {
+    const url = 'file:///app/tui.js'
+    const cache = new Map<string, unknown>([[url, { generation: 1 }]])
+    const internal = {
+      version: 'v1',
+      loadCache: cache,
+      resolve: async () => ({ url }),
+    } as ReloadableModuleLoader
+    const hmr = {
+      stashed: new Set<string>(),
+      partialReload: async () => undefined,
+    } satisfies ReloadableHmr
+
+    await assert.rejects(forceReloadLoadedModule(hmr, internal, url), /did not replace the live module/)
+  })
   it('captures launch-only overlays after a profile prefix mutated during Include application', () => {
     const initial = generation(
       ['base', 'tui'],
