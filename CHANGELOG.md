@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- 新增 Orca pane 内的 agent 状态上报（OSC 9999）：Orca 左侧 workspace 列表现在会显示这个会话那一行（`● Working – DSH` / `✓ Done – DSH`）。新增 `src/orca-status.ts`（序列化 + 状态机，字节直写 stdout 绕开差分渲染器），由 `ORCA_PANE_KEY` 门禁，普通终端下完全静默；上报 `prompt` / `toolName` / `toolInput` / `lastAssistantMessage` / `model` / `interrupted` / `sessionBoundary`，权限确认与提问统一上报 `waiting` 且必带在批准什么，选项式提问附 `interactivePrompt` 让 Orca 渲染成可点击卡片。新增 `tests/orca-status.spec.ts` 与 ConPTY 验收场景 `orca-status`，文档见 `docs/orca.md`
+
 ## [0.5.0] - 2026-08-24
 
 - 修复 `/reload`（及 Ctrl+C 双击退出）可能永久卡死：launcher 的有界关闭在 dispose 成功后仅设置 `process.exitCode` 等事件循环自然排空（5s 强杀定时器已被清除），第三方 bundle 泄漏的 keep-alive handle 会让进程永不退出、壳等不到退出码。现在退出请求后加挂 unref 看门狗（`armExitWatchdog`，10s）：干净退出不受影响，泄漏场景最坏 10 秒后强制退出并照常 respawn

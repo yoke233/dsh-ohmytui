@@ -430,7 +430,8 @@ export class AssistantStreamController {
   }
 }
 
-function toolLabel(name: string): string {
+/** Title a tool call carries on its card (`str_replace_editor` → `Str Replace Editor`). */
+export function toolLabel(name: string): string {
   const safeName = name.trim() === '' ? 'unknown' : name
   return safeName
     .replace(/[-_]+/g, ' ')
@@ -547,7 +548,7 @@ function strReplaceEditorSections(
  * The concrete input content shown under the tool title and above `Output`:
  * a shell command, a path, a query, or the first meaningful string argument.
  */
-function toolDetail(name: string, argumentsJson: string): string | undefined {
+export function toolDetail(name: string, argumentsJson: string): string | undefined {
   const parsed = parseArguments(argumentsJson)
   if (!parsed.valid || typeof parsed.value !== 'object' || parsed.value === null) {
     const raw = displayText(argumentsJson).trim()

@@ -55,6 +55,7 @@
     "CHANGELOG.md",
     "docs/INSTALL.md",
     "docs/hooks.md",
+    "docs/orca.md",
     "docs/examples/hooks.example.json",
     "lib/*.js",
     "lib/wechat",

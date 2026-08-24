@@ -250,6 +250,8 @@ docs/                   安装、发布与 harness 合约文档
 
 - [`docs/INSTALL.md`](docs/INSTALL.md) — 安装、升级、卸载与排障
 - [`docs/contracts.md`](docs/contracts.md) — 当前 dsh 合约的唯一真相源
+- [`docs/hooks.md`](docs/hooks.md) — Claude Code 格式 hooks 桥接
+- [`docs/orca.md`](docs/orca.md) — 在 Orca pane 里的 agent 状态上报
 - [`docs/PUBLISHING.md`](docs/PUBLISHING.md) — release、tarball 与 CI 发布流程
 - [`CHANGELOG.md`](CHANGELOG.md) — 完整版本记录
 

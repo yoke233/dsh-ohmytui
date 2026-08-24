@@ -121,6 +121,8 @@ import {
   TodoPanelComponent,
   ToolCardComponent,
   UserMessageComponent,
+  toolDetail,
+  toolLabel,
   type ToolCardVisibility,
 } from './components/transcript.ts'
 import { PendingInputPanel } from './components/pending-input.ts'
@@ -162,6 +164,7 @@ import {
   readPastedImageFile,
 } from './image-paste.ts'
 import { displayInlineText, displayText } from './components/text.ts'
+import { createOrcaStatusReporter } from './orca-status.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
 import { hasConversationData, recordConversationPreset } from './session-lifecycle.ts'
 import type { BridgeConfig, WechatBridge } from './wechat/index.ts'
@@ -448,6 +451,13 @@ export class Tui extends Service {
       refreshCommands: undefined,
       selectionRef: undefined,
     }
+    // Agent status for a hosting Orca pane. Inert outside Orca, and written
+    // straight to stdout so the differential renderer never sees the sequence.
+    const orcaStatus = createOrcaStatusReporter({
+      write: (data: string) => { terminal.write(data) },
+      model: () => handles.selectionRef?.current?.model ?? agent?.options.model,
+    })
+
     let reasoningEffortCache: { route: string; efforts: readonly LlmReasoningEffortInfo[] } | undefined
     const reasoningEffortsFor = async (selection: ModelSelection): Promise<readonly LlmReasoningEffortInfo[]> => {
       const route = `${selection.provider}\u0000${selection.model}`
@@ -3295,38 +3305,76 @@ export class Tui extends Service {
 
       const offQuestions = ctx.userQuestions.registerProvider({
         ask: async (request) => {
-          const bridge = ctx.get('wechat') as WechatBridge | undefined
-          if (bridge?.askWithFallback !== undefined) {
-            return bridge.askWithFallback(request, async (r) => ({
+          orcaStatus.signal({
+            kind: 'questions',
+            questions: request.questions.map(item => ({
+              question: item.question,
+              header: item.header,
+              multiSelect: item.multiSelect,
+              options: item.options?.map(option => ({
+                label: option.label,
+                description: option.description,
+              })),
+            })),
+          })
+          try {
+            const bridge = ctx.get('wechat') as WechatBridge | undefined
+            if (bridge?.askWithFallback !== undefined) {
+              return await bridge.askWithFallback(request, async (r) => ({
+                answers: await runInlineQuestionFlow(
+                  ui,
+                  askSlot,
+                  palette,
+                  t,
+                  r.questions,
+                  r.signal,
+                  () => ui.setFocus(editor),
+                ),
+              }))
+            }
+            return {
               answers: await runInlineQuestionFlow(
                 ui,
                 askSlot,
                 palette,
                 t,
-                r.questions,
-                r.signal,
+                request.questions,
+                request.signal,
                 () => ui.setFocus(editor),
               ),
-            }))
-          }
-          return {
-            answers: await runInlineQuestionFlow(
-              ui,
-              askSlot,
-              palette,
-              t,
-              request.questions,
-              request.signal,
-              () => ui.setFocus(editor),
-            ),
+            }
+          } finally {
+            orcaStatus.signal({ kind: 'attention-cleared' })
           }
         },
       })
 
       // The approval service fails closed when no answerer claims a request.
       // Claim only requests for the foreground agent and render a modal choice.
+      /**
+       * The argument summary of an already streamed tool call. An approval
+       * request carries only `callId`, but Orca's row has to say what is being
+       * approved, so the summary is read back off the durable log.
+       */
+      const pendingToolInput = (target: Agent, callId: CallId | undefined): string | undefined => {
+        if (callId === undefined) return undefined
+        const events = target.session.events
+        for (let index = events.length - 1; index >= 0; index--) {
+          const event = events[index]!
+          if (event.type === 'tool/call' && event.data.callId === callId) {
+            return toolDetail(event.data.name, event.data.arguments)
+          }
+        }
+        return undefined
+      }
+
       ctx.on('approval/request', async (request, next) => {
         if (request.agent !== agent) return next()
+        orcaStatus.signal({
+          kind: 'approval',
+          toolName: toolLabel(request.toolName),
+          toolInput: pendingToolInput(request.agent, request.callId) ?? request.reason,
+        })
         try {
           return await runApprovalFlow(
             ui,
@@ -3337,15 +3385,43 @@ export class Tui extends Service {
             request.signal,
           )
         } finally {
+          orcaStatus.signal({ kind: 'attention-cleared' })
           ui.setFocus(editor)
         }
       })
 
+      /** Translate one live session event into an Orca lifecycle fact. */
+      const reportOrcaEvent = (event: SessionEvent): void => {
+        if (!orcaStatus.active) return
+        switch (event.type) {
+          case 'user/message':
+            // Injected plugin/system context is not what drove the turn.
+            if (event.data.source.kind !== 'user') break
+            orcaStatus.signal({ kind: 'prompt', text: contentText(event.data.content) })
+            break
+          case 'assistant/message':
+            orcaStatus.signal({ kind: 'assistant', text: contentText(event.data.message.content) })
+            break
+          case 'tool/call':
+            orcaStatus.signal({
+              kind: 'tool',
+              name: toolLabel(event.data.name),
+              input: toolDetail(event.data.name, event.data.arguments),
+            })
+            break
+          case 'turn/end':
+            orcaStatus.signal({ kind: 'turn-end', aborted: event.data.reason.kind === 'aborted' })
+            break
+          default:
+            break
+        }
+      }
       const handleSessionEvent = (targetId: SessionId, session: Session, event: SessionEvent): void => {
         if (session.id !== targetId) return
         try {
           if (event.type === 'session/title') updateTitle()
           renderEvent(event)
+          reportOrcaEvent(event)
           updateStatusValues()
           ui.requestRender()
         } catch (error: unknown) {
@@ -3356,9 +3432,17 @@ export class Tui extends Service {
         if (candidate.id !== targetId) return
         try {
           setStatus(status)
+          orcaStatus.signal({ kind: 'running', running: status === 'running' })
         } catch (error: unknown) {
           appendNotice(t('noticeEventRenderFailed', { error: errorChain(error) }), 'error')
         }
+      }
+      /** Announce the state a newly foregrounded session lands in. */
+      const reportOrcaSession = (target: Agent): void => {
+        orcaStatus.signal({ kind: 'reset' })
+        orcaStatus.signal(target.status === 'running'
+          ? { kind: 'running', running: true }
+          : { kind: 'boundary' })
       }
       const subscribeInbox = (target: Agent): void => {
         offInboxInserted?.()
@@ -3446,6 +3530,7 @@ export class Tui extends Service {
         rebuildTranscript()
         live = true
         setStatus(next.status)
+        reportOrcaSession(next)
         updateTitle()
         warnIfFullAccess(next)
         void composeAgentPreset(next).then(() => { handles.refreshCommands?.() })
@@ -3584,6 +3669,7 @@ export class Tui extends Service {
       live = true
       updateTitle()
       setStatus(liveAgent.status)
+      reportOrcaSession(liveAgent)
       void composeAgentPreset(liveAgent).then(() => { handles.refreshCommands?.() })
       void (async () => {
         const presets = ctx.agentPresets
