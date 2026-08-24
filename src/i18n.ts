@@ -42,6 +42,7 @@ export type Messages = {
   helpDetails: string
   helpSkills: string
   helpSkillInvoke: string
+  skillArgumentHint: string
   helpMode: string
   helpTheme: string
   helpSettings: string
@@ -323,6 +324,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpDetails: '查看会话诊断',
     helpSkills: '列出可用技能',
     helpSkillInvoke: '以指令方式调用技能',
+    skillArgumentHint: '[请求]',
     helpSettings: '打开可视化设置',
     helpContext: '查看上下文窗口用量',
     helpMode: '切换工作模式（官方预设与本地安装的预设）',
@@ -372,7 +374,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeSessionListFailed: '会话列表获取失败：{error}',
     noticeNoSkills: '没有可用技能。',
     noticeSkillListFailed: '技能列表获取失败：{error}',
-    noticeSkillUsage: '用法：/skill:<名称>',
+    noticeSkillUsage: '用法：/skill:<名称> [请求]',
     noticeUnknownSkill: '未知技能：{name}',
     noticeSkillFailed: '技能 "{name}" 加载失败：{error}',
     noticeAlreadySession: '已在当前会话。',
@@ -598,6 +600,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpDetails: 'show session diagnostics',
     helpSkills: 'list available skills',
     helpSkillInvoke: 'invoke a skill as instructions',
+    skillArgumentHint: '[request]',
     helpMode: 'switch working mode (shipped or locally installed presets)',
     helpTheme: 'show themes or switch theme',
     helpSettings: 'open visual settings',
@@ -647,7 +650,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeSessionListFailed: 'Session listing failed: {error}',
     noticeNoSkills: 'No skills available.',
     noticeSkillListFailed: 'Skill listing failed: {error}',
-    noticeSkillUsage: 'Usage: /skill:<name>',
+    noticeSkillUsage: 'Usage: /skill:<name> [request]',
     noticeUnknownSkill: 'Unknown skill: {name}',
     noticeSkillFailed: 'Skill "{name}" failed to load: {error}',
     noticeAlreadySession: 'Already on this session.',

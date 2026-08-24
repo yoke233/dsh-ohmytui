@@ -499,6 +499,7 @@ class SkillRegistry extends Service {
   snapshot(options?): Promise<SkillCatalogSnapshot>;  // { skills, complete }
   get(name, options?): Promise<SkillDefinition | undefined>;
 }
+scopeOf(agent.ctx): ScopeKey | undefined; // TUI 查询必须传 scope，才能看到 agent preset 层的 skills
 isUserInvocable(skill): boolean;   // TUI `/skill:` 列表过滤
 ```
 

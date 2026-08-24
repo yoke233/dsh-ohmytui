@@ -14,7 +14,42 @@ import type {
   AutocompleteItem,
   AutocompleteProvider,
   AutocompleteSuggestions,
+  SlashCommand,
 } from '@earendil-works/pi-tui'
+
+export interface SkillCommandCandidate {
+  name: string
+  description: string
+  invocation: { userInvocable: boolean }
+}
+
+/** Split `/skill:<name> [request]` without treating the request as part of the name. */
+export function parseSkillInvocation(line: string): { name: string; request: string } {
+  const invocation = line.slice('/skill:'.length).trim()
+  const separator = invocation.search(/\s/u)
+  if (separator < 0) return { name: invocation, request: '' }
+  return {
+    name: invocation.slice(0, separator),
+    request: invocation.slice(separator).trim(),
+  }
+}
+
+/** Replace dynamic skill commands while retaining every non-skill command. */
+export function syncSkillCommands(
+  commands: SlashCommand[],
+  skills: readonly SkillCommandCandidate[],
+  argumentHint = '[request]',
+): void {
+  const regularCommands = commands.filter(command => !command.name.startsWith('skill:'))
+  const skillCommands = skills
+    .filter(skill => skill.invocation.userInvocable)
+    .map((skill): SlashCommand => ({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      argumentHint,
+    }))
+  commands.splice(0, commands.length, ...regularCommands, ...skillCommands)
+}
 
 /** Autocomplete provider that completes `skill:<name>` commands without a space. */
 export class SkillAwareAutocompleteProvider implements AutocompleteProvider {

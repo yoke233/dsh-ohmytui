@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions } from '@earendil-works/pi-tui'
-import { SkillAwareAutocompleteProvider } from '../src/autocomplete.ts'
+import {
+  SkillAwareAutocompleteProvider,
+  parseSkillInvocation,
+  syncSkillCommands,
+} from '../src/autocomplete.ts'
 
 function innerStub(suggestions: AutocompleteSuggestions | null): AutocompleteProvider {
   return {
@@ -36,5 +40,57 @@ describe('SkillAwareAutocompleteProvider', () => {
     const suggestions = await provider.getSuggestions(['/com'], 0, 4, {} as never)
     assert.ok(suggestions)
     assert.equal(suggestions!.items[0]!.value, 'skill:git-commit')
+  })
+})
+
+describe('skill slash commands', () => {
+  it('separates a trailing request from the skill name', () => {
+    assert.deepEqual(
+      parseSkillInvocation('/skill:beautify-github-readme 重写readme'),
+      { name: 'beautify-github-readme', request: '重写readme' },
+    )
+    assert.deepEqual(
+      parseSkillInvocation('/skill:beautify-github-readme'),
+      { name: 'beautify-github-readme', request: '' },
+    )
+  })
+
+  it('adds user-invocable skills to the slash list with their descriptions', () => {
+    const commands = [{ name: 'help', description: 'Help' }]
+    syncSkillCommands(commands, [
+      {
+        name: 'beautify-github-readme',
+        description: 'Beautify a GitHub README',
+        invocation: { userInvocable: true },
+      },
+      {
+        name: 'internal-only',
+        description: 'Hidden',
+        invocation: { userInvocable: false },
+      },
+    ])
+
+    assert.deepEqual(commands, [
+      { name: 'help', description: 'Help' },
+      {
+        name: 'skill:beautify-github-readme',
+        description: 'Beautify a GitHub README',
+        argumentHint: '[request]',
+      },
+    ])
+  })
+
+  it('replaces stale skill entries when the catalog refreshes', () => {
+    const commands = [
+      { name: 'help', description: 'Help' },
+      { name: 'skill:old', description: 'Old' },
+    ]
+    syncSkillCommands(commands, [{
+      name: 'new',
+      description: 'New',
+      invocation: { userInvocable: true },
+    }])
+
+    assert.deepEqual(commands.map(command => command.name), ['help', 'skill:new'])
   })
 })

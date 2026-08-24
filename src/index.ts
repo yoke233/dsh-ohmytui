@@ -27,9 +27,10 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { CombinedAutocompleteProvider, type AutocompleteItem, type SlashCommand } from '@earendil-works/pi-tui'
 import { createUserMessage, errorChain, type CallId, type LlmConfigurableProvider, type LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
-import { renderSkillContent } from '@deepseek-ai/dsh-skill'
+import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill'
 // Type-only imports pull in the declaration merges that expose `ctx.commands`,
 // `ctx.tokenMeter`, `ctx.llm`, `ctx.userQuestions`, `ctx.approval`, `ctx.sessionQuery`,
 // `ctx.agentDefaultModel`, `ctx.skills`, `ctx.sessionReferenceResolver`, and
@@ -72,7 +73,11 @@ import {
   permissionCommandMetadata,
   registryPermissionName,
 } from './permission.ts'
-import { SkillAwareAutocompleteProvider } from './autocomplete.ts'
+import {
+  SkillAwareAutocompleteProvider,
+  parseSkillInvocation,
+  syncSkillCommands,
+} from './autocomplete.ts'
 import {
   BUILTIN_THEMES,
   COLOR_ROLES,
@@ -1132,13 +1137,17 @@ export class Tui extends Service {
       }
       if (line === '/skills' || line.startsWith('/skills ')) {
         try {
-          const snapshot = await ctx.skills.snapshot({ cwd: current.session.header.cwd ?? process.cwd() })
-          if (snapshot.skills.length === 0) {
+          const snapshot = await ctx.skills.snapshot({
+            cwd: current.session.header.cwd ?? process.cwd(),
+            scope: scopeOf(current.ctx),
+          })
+          const skills = snapshot.skills.filter(isUserInvocable)
+          if (skills.length === 0) {
             appendNotice(t('noticeNoSkills'), 'info')
             return
           }
-          const rows = snapshot.skills.map(skill =>
-            `/${skill.name} — ${skill.description}${skill.source === undefined ? '' : ` (${skill.source})`}`)
+          const rows = skills.map(skill =>
+            `/skill:${skill.name} — ${skill.description}${skill.source === undefined ? '' : ` (${skill.source})`}`)
           chat.addChild(new StaticCardComponent(rows, palette))
           ui.requestRender()
         } catch (error: unknown) {
@@ -1147,22 +1156,36 @@ export class Tui extends Service {
         return
       }
       if (line.startsWith('/skill:')) {
-        const name = line.slice('/skill:'.length).trim()
+        const { name, request } = parseSkillInvocation(line)
         if (name === '') {
           appendNotice(t('noticeSkillUsage'), 'warning')
           return
         }
         try {
-          const definition = await ctx.skills.get(name, { cwd: current.session.header.cwd ?? process.cwd() })
-          if (definition === undefined) {
+          const definition = await ctx.skills.get(name, {
+            cwd: current.session.header.cwd ?? process.cwd(),
+            scope: scopeOf(current.ctx),
+          })
+          if (definition === undefined || !isUserInvocable(definition)) {
             appendNotice(t('noticeUnknownSkill', { name }), 'warning')
             return
           }
           recordActivePreset(current)
-          current.steer(createUserMessage({
+          const instructions = createUserMessage({
             content: [{ type: 'text', text: renderSkillContent(definition) }],
             source: { kind: 'skill-invocation', name, form: 'instructions' },
-          }))
+          })
+          if (request === '') {
+            current.steer(instructions)
+          } else {
+            // Queue the skill context without waking, then use the trailing text
+            // as the visible user request that wakes the same nearest step.
+            current.inject(instructions)
+            current.steer(createUserMessage({
+              content: [{ type: 'text', text: request }],
+              source: { kind: 'user' },
+            }))
+          }
         } catch (error: unknown) {
           appendNotice(t('noticeSkillFailed', { name, error: errorChain(error) }), 'error')
         }
@@ -2622,7 +2645,7 @@ export class Tui extends Service {
           `/reload — ${t('helpReload')}`,
           `/details — ${t('helpDetails')}`,
           `/skills — ${t('helpSkills')}`,
-          `/skill:<name> — ${t('helpSkillInvoke')}`,
+          `/skill:<name> ${t('skillArgumentHint')} — ${t('helpSkillInvoke')}`,
           `/mode — ${t('helpMode')}`,
           `/theme — ${t('helpTheme')}`,
           `/settings — ${t('helpSettings')}`,
@@ -2799,6 +2822,7 @@ export class Tui extends Service {
     let offInboxInserted: (() => void) | undefined
     let offInboxDiscarded: (() => void) | undefined
     let offCommandsChange: (() => void) | undefined
+    let offSkillsChange: (() => void) | undefined
     let offScheme: (() => void) | undefined
     let offModelSelection: (() => void) | undefined
     let offWechatOutput: (() => void) | undefined
@@ -2986,7 +3010,7 @@ export class Tui extends Service {
       ]
       const builtinCommandNames = new Set(builtinCommandEntries.map(command => command.name))
       const commandEntries: SlashCommand[] = [...builtinCommandEntries]
-      const skillCommandNames = new Set<string>()
+      let skillRefreshRevision = 0
       const registeredCommandEntries = (target: Agent): SlashCommand[] => ctx.commands.list(target)
         .filter(command => !builtinCommandNames.has(command.name))
         .map((command): SlashCommand => {
@@ -3023,32 +3047,27 @@ export class Tui extends Service {
         installAutocomplete()
       }
       const refreshSkillCommands = async (): Promise<void> => {
+        const revision = ++skillRefreshRevision
         try {
-          const snapshot = await ctx.skills.snapshot({ cwd: workspace })
-          const seen = new Set<string>()
-          for (const skill of snapshot.skills) {
-            const name = `skill:${skill.name}`
-            seen.add(name)
-            if (!skillCommandNames.has(name)) {
-              skillCommandNames.add(name)
-              commandEntries.push({ name, description: t('helpSkillInvoke') })
-            }
-          }
-          for (let index = commandEntries.length - 1; index >= 0; index--) {
-            const entry = commandEntries[index]
-            if (entry !== undefined && entry.name.startsWith('skill:') && !seen.has(entry.name)) {
-              commandEntries.splice(index, 1)
-              skillCommandNames.delete(entry.name)
-            }
-          }
+          const current = agent ?? liveAgent
+          const snapshot = await ctx.skills.snapshot({
+            cwd: current.session.header.cwd ?? workspace,
+            scope: scopeOf(current.ctx),
+          })
+          if (revision !== skillRefreshRevision) return
+          syncSkillCommands(commandEntries, snapshot.skills, t('skillArgumentHint'))
           installAutocomplete()
         } catch {
           // Keep the current skill command list if the snapshot fails.
         }
       }
       refreshCommandEntries()
-      handles.refreshCommands = refreshCommandEntries
+      handles.refreshCommands = () => {
+        refreshCommandEntries()
+        void refreshSkillCommands()
+      }
       offCommandsChange = ctx.on('commands/change', refreshCommandEntries)
+      offSkillsChange = ctx.on('skills/change', () => { void refreshSkillCommands() })
       void refreshSkillCommands()
       editor.onChange = (text: string): void => {
         commandHintText = commandInputHint(text, commandEntries)
@@ -3205,7 +3224,7 @@ export class Tui extends Service {
         setStatus(next.status)
         updateTitle()
         warnIfFullAccess(next)
-        void composeAgentPreset(next)
+        void composeAgentPreset(next).then(() => { handles.refreshCommands?.() })
         if (previousHandle !== undefined && previousHandle !== handle) {
           // 延迟到当前命令/事件生命周期写完再释放旧句柄；微信侧
           // `@dsh new` 会从旧 agent 的命令执行中直接切换前台会话。
@@ -3340,7 +3359,7 @@ export class Tui extends Service {
       live = true
       updateTitle()
       setStatus(liveAgent.status)
-      void composeAgentPreset(liveAgent)
+      void composeAgentPreset(liveAgent).then(() => { handles.refreshCommands?.() })
       void (async () => {
         const presets = ctx.agentPresets
         if (presets === undefined) return
@@ -3390,6 +3409,7 @@ export class Tui extends Service {
       offInboxInserted?.()
       offInboxDiscarded?.()
       offCommandsChange?.()
+      offSkillsChange?.()
       offScheme?.()
       offModelSelection?.()
       offWechatOutput?.()
