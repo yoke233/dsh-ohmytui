@@ -39,7 +39,13 @@ Run the packaged startup/help smoke scenario:
 powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario smoke
 ```
 
-The `reload` and `reload-code` scenarios are retained only as investigation fixtures while the bundle's reload module is disabled. Do not treat them as current acceptance tests; run them only when explicitly resuming the reload design.
+Run the supervisor-based reload acceptance scenario (starts the TUI under `scripts/omdsh.js`, asserts the dsh PID is REPLACED across `/reload` while the supervisor terminal process stays, changed installed plugin code takes effect, and the new generation resumes the same session):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload-respawn
+```
+
+The `reload` and `reload-code` scenarios are retained only as historical fixtures of the abandoned in-process reload investigation (they assert a constant PID, the opposite of the shipped respawn contract). Do not treat them as current acceptance tests.
 
 Run the network-free, controlled-model scenario for running-turn input, immediate preview, and steer delivery:
 

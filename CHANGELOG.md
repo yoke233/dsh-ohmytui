@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## [0.5.0] - 2026-08-24
 
+- 修复 `/reload`（及 Ctrl+C 双击退出）可能永久卡死：launcher 的有界关闭在 dispose 成功后仅设置 `process.exitCode` 等事件循环自然排空（5s 强杀定时器已被清除），第三方 bundle 泄漏的 keep-alive handle 会让进程永不退出、壳等不到退出码。现在退出请求后加挂 unref 看门狗（`armExitWatchdog`，10s）：干净退出不受影响，泄漏场景最坏 10 秒后强制退出并照常 respawn
+- 重新启用 `/reload`，改为监督进程 + 世代重启实现（不修改 deepseek-harness）：`omdsh` 作为稳定监督进程，TUI `/reload` 把下一代内层参数写入 handoff 文件并经 `ctx.appExit(75)` 优雅退出，`omdsh` 在同一终端重启新一代 dsh 进程并以 `--resume` 续接当前会话；任意插件升级、`link:` 代码变化、依赖变化随新进程模块图生效。直接 `dsh --profile tui` 启动时 `/reload` 提示需要 `omdsh` 并拒绝。新增 `src/respawn.ts` 契约模块、`tests/respawn.spec.ts` 单测与 ConPTY 验收场景 `reload-respawn`（断言 dsh PID 更换、监督进程不变、已安装代码修改生效、`--resume` 命令行续接）
 - 新增 `/context` 全屏上下文用量检查器：显示模型窗口占用、分类明细、块状地图，并支持导航、预览、缩放与 `Esc` 返回
 - 升级 dsh 宿主、运行时与开发依赖到 `0.1.1-rc.2`，并同步本地开发与安装文档
 - 暂时关闭实验性的 `/reload` 与 `tui-reload` Profile 行；调查源码和测试保留，Profile 或代码变化需重启 TUI 后生效

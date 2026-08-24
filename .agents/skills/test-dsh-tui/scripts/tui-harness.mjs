@@ -84,6 +84,23 @@ export class TuiHarness {
 
   /** Start the packaged `tui` Profile with optional dsh arguments. */
   async start(args = []) {
+    return this.spawnTerminal(this.dshLaunch.command, [
+      ...this.dshLaunch.prefix,
+      '--profile', 'tui', '--session', this.session, ...args,
+    ])
+  }
+
+  /**
+   * Start the `tui` Profile under the packaged omdsh supervisor, the seam the
+   * `/reload` respawn contract requires: the supervisor keeps the terminal
+   * while dsh generations come and go.
+   */
+  async startSupervised(args = []) {
+    const omdsh = join(this.config.projectRoot, 'scripts', 'omdsh.js')
+    return this.spawnTerminal(process.execPath, [omdsh, '--session', this.session, ...args])
+  }
+
+  spawnTerminal(command, argv) {
     if (this.terminal !== undefined) throw new Error('TUI is already running')
     const childEnv = {
       ...process.env,
@@ -95,10 +112,7 @@ export class TuiHarness {
         if (/(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)) delete childEnv[name]
       }
     }
-    this.terminal = this.pty.spawn(this.dshLaunch.command, [
-      ...this.dshLaunch.prefix,
-      '--profile', 'tui', '--session', this.session, ...args,
-    ], {
+    this.terminal = this.pty.spawn(command, argv, {
       cwd: this.config.projectRoot,
       env: childEnv,
       cols: this.cols,
@@ -187,12 +201,16 @@ export class TuiHarness {
     throw new Error(`Timed out waiting for ${label}.\n${this.plainOutput().slice(-5000)}`)
   }
 
-  /** Current DSH Node process id for continuity assertions. */
+  /**
+   * Current DSH Node process id for continuity assertions. The `--profile`
+   * requirement distinguishes the booted dsh process from the omdsh
+   * supervisor, whose own argv also carries the session id.
+   */
   pid() {
     if (process.platform === 'win32') {
       const command = [
         `$id = ${JSON.stringify(this.session)}`,
-        "$process = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like ('*' + $id + '*') } | Select-Object -First 1 -ExpandProperty ProcessId",
+        "$process = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like ('*' + $id + '*') -and $_.CommandLine -like '*--profile*' } | Select-Object -First 1 -ExpandProperty ProcessId",
         'Write-Output $process',
       ].join('; ')
       const result = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', command], { encoding: 'utf8' })
@@ -201,10 +219,22 @@ export class TuiHarness {
       throw new Error(`Cannot find DSH process: ${result.stdout}\n${result.stderr}`)
     }
     const result = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' })
-    const line = result.stdout.split('\n').find(value => value.includes(this.session) && value.includes('node'))
+    const line = result.stdout.split('\n').find(value =>
+      value.includes(this.session) && value.includes('node') && value.includes('--profile'))
     const pid = Number(line?.trim().split(/\s+/, 1)[0])
     if (Number.isInteger(pid) && pid > 0) return pid
     throw new Error(`Cannot find DSH process in ps output for ${this.session}`)
+  }
+
+  /** Full command line of one process, for launch-argument assertions. */
+  commandLine(pid) {
+    if (process.platform === 'win32') {
+      const command = `Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}" | Select-Object -ExpandProperty CommandLine`
+      const result = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', command], { encoding: 'utf8' })
+      return result.stdout.trim()
+    }
+    const result = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' })
+    return result.stdout.trim()
   }
 
   /** Run a non-interactive dsh command against the isolated Profile. */

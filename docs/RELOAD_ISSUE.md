@@ -2,11 +2,21 @@
 
 ## 状态
 
-**设计问题已记录，当前暂停实现。尚未完成修复或最终验收。**
+**已实现：监督进程 + 世代重启（路线 B 的退化形态），不修改 deepseek-harness。**
 
-当前 bundle 已暂时关闭 reload：`cordis.patch.yml` 中的 `tui-reload` 行为 disabled，TUI 不注入 `tuiReload`，也不展示或处理 `/reload`。用户需要退出并重新启动 `dsh --profile tui` 才能载入 Profile 或代码变化。
+实现落点全部在本插件：
 
-`src/reload.ts`、包导出、专项源码测试和历史场景仍作为调查 WIP 保留，便于后续恢复；这些内容不能视为当前运行时能力。恢复工作时必须先区分 reload 改动与同工作树中的其他并行功能。
+- `scripts/omdsh.js` 是稳定监督进程：spawn `dsh --profile tui`（stdio inherit，同一终端），并通过 `OMDSH_RELOAD_HANDOFF` 环境变量向子进程命名一个 handoff 文件。
+- TUI 的 `/reload`（`src/index.ts` + `src/respawn.ts`）：回合运行中拒绝；否则把下一代内层参数（剥掉旧 `--resume/--session`，追加 `--resume <当前会话>`）写入 handoff 文件，然后调用 dsh 公开的 `ctx.appExit(75)` 优雅退出。
+- omdsh 看到退出码 75 且 handoff 存在 → 用新参数重启新一代 dsh 进程；其余退出码原样透传。
+- 新进程 = 全新模块图：任意插件版本升级、`link:` 内容变化、依赖变化、全局副作用都随旧进程销毁而生效；会话通过插件自己已有的 `--resume` 路径续接（`src/startup.ts`）。
+- 直接 `dsh --profile tui` 启动（无监督进程）时，`/reload` 给出提示并拒绝，进程保持存活。
+
+验收：单测 `tests/respawn.spec.ts`；ConPTY 场景 `reload-respawn`（断言 dsh PID 更换、监督进程不变、已安装插件代码修改生效、命令行携带 `--resume <同一会话>`）。注意：与旧的进程内设想相反，**该场景要求 dsh PID 必须变化**，只有 omdsh 监督进程保持不变。
+
+代价与边界（与下文分析一致）：一次约数百毫秒的重绘闪断；监督进程自身（`scripts/omdsh.js`）的更新仍需完整退出重启（启动悖论的最小残余）。
+
+`src/reload.ts`（进程内 HMR WIP）与 `reload`/`reload-code` 场景仍按原样保留，仅作为路线 A 的历史调查记录，不是当前运行时能力。下文其余章节为当时的设计分析，保留作为决策依据。
 
 ## 原始目标
 

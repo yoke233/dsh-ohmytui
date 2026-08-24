@@ -20,17 +20,19 @@ export async function run(tui) {
     label: 'visible help command list',
   })
   const helpScreen = await tui.screenText()
-  if (/\/reload —/.test(helpScreen)) {
-    throw new Error('disabled /reload command is still present in help')
+  if (!/\/reload —/.test(helpScreen)) {
+    throw new Error('/reload command is missing from help')
   }
   const help = await tui.snapshot('smoke-help')
 
+  // Without the omdsh supervisor a reload exit could not respawn, so the
+  // command must refuse and the process must stay alive.
   const reloadOffset = tui.mark()
   tui.submit('/reload')
-  await tui.waitForOutput(/未知命令：reload|Unknown command: reload/, {
+  await tui.waitForOutput(/omdsh/, {
     since: reloadOffset,
     timeoutMs: 15_000,
-    label: 'disabled reload command rejection',
+    label: 'unsupervised reload refusal notice',
   })
 
   const pidAfter = tui.pid()
@@ -43,7 +45,7 @@ export async function run(tui) {
     ready: true,
     helpRendered: true,
     inputAccepted: true,
-    reloadDisabled: true,
+    reloadRefusedWithoutSupervisor: true,
     pidBefore,
     pidAfter,
     processStayedLive: true,

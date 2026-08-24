@@ -66,6 +66,13 @@ import {
   type UiMode,
 } from './config.ts'
 import type { TuiStartup } from './startup.ts'
+import {
+  RELOAD_EXIT_CODE,
+  RELOAD_HANDOFF_ENV,
+  armExitWatchdog,
+  nextGenerationArgs,
+  writeReloadHandoff,
+} from './respawn.ts'
 import { parseTuiPromptTemplate } from './prompt.ts'
 import { createTranslator, type MessageKey, type Translator } from './i18n.ts'
 import { registerJobsCommand, summarizeActiveJobs } from './jobs.ts'
@@ -1144,6 +1151,39 @@ export class Tui extends Service {
         } catch (error: unknown) {
           appendNotice(t('noticeThinkFailed', { error: errorChain(error) }), 'error')
         }
+        return
+      }
+      if (line === '/reload' || line.startsWith('/reload ')) {
+        if (current.status === 'running' || isCompacting) {
+          appendNotice(t('noticeReloadBusy'), 'warning')
+          return
+        }
+        // The respawn supervisor names the handoff file; without it a reload
+        // exit would simply terminate the process, so refuse instead.
+        const handoffPath = process.env[RELOAD_HANDOFF_ENV]
+        const exit = ctx.appExit
+        if (handoffPath === undefined || handoffPath === '' || exit === undefined) {
+          appendNotice(t('noticeReloadUnsupervised'), 'warning')
+          return
+        }
+        try {
+          // A blank session was never materialized by the persistence gate, so
+          // agent-loop's strict config resume would fail; recreate its exact id
+          // fresh instead.
+          writeReloadHandoff(handoffPath, {
+            args: nextGenerationArgs(
+              ctx.get('cmdlineArgs')?.get() ?? [],
+              String(current.session.header.id),
+              hasConversationData(current.session.events) ? '--resume' : '--session',
+            ),
+          })
+        } catch (error: unknown) {
+          appendNotice(t('noticeReloadFailed', { error: errorChain(error) }), 'error')
+          return
+        }
+        appendNotice(t('noticeReloading'), 'info')
+        exit(RELOAD_EXIT_CODE)
+        armExitWatchdog(RELOAD_EXIT_CODE)
         return
       }
       if (line === '/new' || line.startsWith('/new ')) {
@@ -2686,6 +2726,7 @@ export class Tui extends Service {
           `/new — ${t('helpNew')}`,
           `/resume — ${t('helpResume')}`,
           `/copy — ${t('helpCopy')}`,
+          `/reload — ${t('helpReload')}`,
           `/details — ${t('helpDetails')}`,
           `/skills — ${t('helpSkills')}`,
           `/skill:<name> ${t('skillArgumentHint')} — ${t('helpSkillInvoke')}`,
@@ -2897,6 +2938,7 @@ export class Tui extends Service {
           clearTimeout(exitArmTimer)
           exitArmed = false
           ctx.appExit?.(0)
+          armExitWatchdog(0)
           return {}
         }
         exitArmed = true
@@ -3056,6 +3098,7 @@ export class Tui extends Service {
         },
         { name: 'new', description: t('cmdNew') },
         { name: 'copy', description: t('cmdCopy') },
+        { name: 'reload', description: t('cmdReload') },
         {
           name: 'resume',
           description: t('cmdResume'),

@@ -75,12 +75,13 @@ function runSync(command, args, opts = {}) {
   return spawnSync(command, args, opts)
 }
 
-function run(command, args) {
+function run(command, args, extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv }
   if (isWin) {
     const line = [command, ...args].map(shellQuote).join(' ')
-    return spawn(line, [], { stdio: 'inherit', shell: true })
+    return spawn(line, [], { stdio: 'inherit', shell: true, env })
   }
-  return spawn(command, args, { stdio: 'inherit' })
+  return spawn(command, args, { stdio: 'inherit', env })
 }
 
 function packageRoot() {
@@ -183,23 +184,80 @@ if (process.env.DSH_DEBUG === '1') {
 
 ensureProfile()
 
-const child = run(dsh, spawnArgs)
+// --- 世代重启（/reload）--------------------------------------------------
+// omdsh 是稳定监督进程：dsh 子进程以 RELOAD_EXIT_CODE 优雅退出并把下一代
+// 的内层参数写入 handoff 文件后，omdsh 在同一终端上启动新一代 dsh 进程。
+// 新进程 = 全新模块图，任何插件/依赖/配置变化都随之生效；会话通过
+// handoff 中的 --resume 续接。
+const RELOAD_EXIT_CODE = 75
+const handoffPath = path.join(os.tmpdir(), `omdsh-reload-${process.pid}.json`)
 
-child.on('error', (err) => {
-  if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
-    process.stderr.write('omdsh: 未在 PATH 中找到官方 dsh。\n')
-    process.stderr.write('omdsh: 请先安装 @deepseek-ai/dsh（例如: npm install -g @deepseek-ai/dsh）。\n')
-    process.exitCode = 127
-    return
+/** 读取并消费一次 handoff；缺失或损坏时返回 undefined（按普通退出处理）。 */
+function readHandoffArgs() {
+  let raw
+  try {
+    raw = fs.readFileSync(handoffPath, 'utf8')
+  } catch {
+    return undefined
   }
-  process.stderr.write(`omdsh: 启动 dsh 失败: ${String(err)}\n`)
-  process.exitCode = 1
-})
+  try {
+    fs.unlinkSync(handoffPath)
+  } catch {
+    // 留下的临时文件在下一次读取时会被消费或忽略。
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed?.args) && parsed.args.every(item => typeof item === 'string')) {
+      return parsed.args
+    }
+  } catch {
+    // 损坏的 handoff 不阻止退出码原样透传。
+  }
+  return undefined
+}
 
-child.on('exit', (code, signal) => {
-  if (signal !== null) {
-    process.kill(process.pid, signal)
-    return
+/** 运行一代交互式 dsh，等待其退出并回报退出方式。 */
+function runGeneration(innerArgs) {
+  return new Promise((settle) => {
+    const child = run(dsh, ['--profile', PROFILE, ...innerArgs], {
+      OMDSH_RELOAD_HANDOFF: handoffPath,
+    })
+    child.on('error', (err) => {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+        process.stderr.write('omdsh: 未在 PATH 中找到官方 dsh。\n')
+        process.stderr.write('omdsh: 请先安装 @deepseek-ai/dsh（例如: npm install -g @deepseek-ai/dsh）。\n')
+        settle({ failedCode: 127 })
+        return
+      }
+      process.stderr.write(`omdsh: 启动 dsh 失败: ${String(err)}\n`)
+      settle({ failedCode: 1 })
+    })
+    child.on('exit', (code, signal) => settle({ code, signal }))
+  })
+}
+
+// 交互期间监督进程忽略 SIGINT：raw 模式下 Ctrl+C 由 TUI 子进程自行处理
+// （双击退出），非 raw 阶段信号发给整个前台进程组，子进程退出后监督进程
+// 通过退出码路径收尾——它必须活到那一刻才能在 reload 上重启新一代。
+process.on('SIGINT', () => {})
+
+let innerArgs = args
+for (;;) {
+  const result = await runGeneration(innerArgs)
+  if (result.failedCode !== undefined) process.exit(result.failedCode)
+  if (result.signal !== null && result.signal !== undefined) {
+    process.exit(result.signal === 'SIGINT' ? 130 : 1)
   }
-  process.exit(code ?? 0)
-})
+  if (result.code === RELOAD_EXIT_CODE) {
+    const nextArgs = readHandoffArgs()
+    if (nextArgs !== undefined) {
+      process.stderr.write('omdsh: 收到重载请求，正在启动新一代进程并续接会话…\n')
+      // 重启前重跑引导检查：profile 内刚更新的插件版本由新一代进程载入。
+      ensureProfile()
+      innerArgs = nextArgs
+      continue
+    }
+    // 没有 handoff 的 75 不属于 reload 契约，按普通退出码透传。
+  }
+  process.exit(result.code ?? 0)
+}

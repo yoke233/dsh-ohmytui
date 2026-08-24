@@ -8,7 +8,7 @@
 全局安装本地 tarball 时，包内的 dsh 宿主 peer 依赖已标记为 optional，npm 11 可以继续完成依赖解析，不会因该 peer 图在 Arborist 中触发 `null.children` 崩溃。
 
 ```sh
-npm install --global ./dsh-omp-tui-0.2.3.tgz
+npm install --global ./dsh-omp-tui-0.5.0.tgz
 ```
 
 随后安装官方 dsh（若尚未安装），再运行启动器：
@@ -41,7 +41,7 @@ npm install --global pnpm@11.7.0
 # 或：corepack enable
 
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.2.3/dsh-omp-tui-0.2.3.tgz
+  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
 tarball 已经包含构建后的 `lib/`，安装时不需要在用户机器上编译项目，也不会执行 Git 依赖的 `prepare` 构建流程。
@@ -53,7 +53,7 @@ Release 尚未创建或需要安装某个提交时，可以直接安装 Git 仓�
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
   --allow-build=dsh-omp-tui \
-  github:mytianyi0712/dsh-tui-plugin-OhMyPi#v0.2.3
+  github:mytianyi0712/dsh-tui-plugin-OhMyPi#v0.5.0
 ```
 
 不要省略 `--allow-build=dsh-omp-tui`。如果 pnpm 已打印了 `allowBuilds` 建议，也可以按提示将该精确包名写入 `~/.config/pnpm/rc` 或 profile 的 `pnpm-workspace.yaml` 后重试。
@@ -82,17 +82,20 @@ npm install --global @deepseek-ai/dsh@0.1.1-rc.2
 dsh --profile tui
 ```
 
-或者使用本项目自带的 `omdsh` 启动器（它只从系统 PATH 中查找官方 `dsh`，不通过 npx 下载或缓存 dsh）。用 `dsh plugin add` 安装 tgz 后，`omdsh` 会出现在 profile 的 `.bin` 目录。`omdsh` 首次运行时会自动把 `dsh-omp-tui` 安装到 tui profile；之后检测到 profile 内版本低于启动器版本时也会自动更新（可用 `OMDSH_NO_BOOTSTRAP=1` 跳过）：
+**推荐**使用本项目自带的 `omdsh` 启动器（它只从系统 PATH 中查找官方 `dsh`，不通过 npx 下载或缓存 dsh）。`omdsh` 首次运行时会自动把 `dsh-omp-tui` 安装到 tui profile；之后检测到 profile 内版本低于启动器版本时也会自动更新（可用 `OMDSH_NO_BOOTSTRAP=1` 跳过）。它还是 `/reload` 的监督进程：只有经 `omdsh` 启动，TUI 里的 `/reload` 才能原地重启插件运行时并续接当前会话。
+
+全局安装 tarball（见上文）后 `omdsh` 直接在 PATH 中：
 
 ```sh
-# 把 profile 的 .bin 目录加入 PATH（一次性）后：
-export PATH="$HOME/.dsh/profiles/tui/node_modules/.bin:$PATH"   # Git Bash / zsh
 omdsh
 omdsh --resume <session-id>
+```
 
-# Windows PowerShell（一次性）：
-$env:PATH = "$HOME\.dsh\profiles\tui\node_modules\.bin;$env:PATH"
-omdsh
+若只用 `dsh plugin add` 安装到 profile，`omdsh` 位于 profile 的 `.bin` 目录，可将其加入 PATH：
+
+```sh
+export PATH="$HOME/.dsh/profiles/tui/node_modules/.bin:$PATH"   # Git Bash / zsh
+$env:PATH = "$HOME\.dsh\profiles\tui\node_modules\.bin;$env:PATH"  # Windows PowerShell
 ```
 
 验证 profile 已组合成功：
@@ -133,7 +136,7 @@ $env:DEEPSEEK_BASE_URL = 'http://localhost:3000/v1'
 
 ```sh
 dsh plugin --profile tui add \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.2.3/dsh-omp-tui-0.2.3.tgz
+  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
 若当前依赖跟踪的是 `main`，可以更新 Git 依赖：
@@ -142,11 +145,13 @@ dsh plugin --profile tui add \
 dsh plugin --profile tui update dsh-omp-tui
 ```
 
+经 `omdsh` 启动的运行中会话无需退出：安装新版后在 TUI 里执行 `/reload`，新一代进程会载入新版本并续接当前会话。
+
 升级后重新检查：
 
 ```sh
 dsh --profile tui --dump-config
-dsh --profile tui
+omdsh
 ```
 
 ## 卸载
@@ -170,7 +175,7 @@ pnpm run prepare
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add link:.
 ```
 
-修改源码后运行 `pnpm run prepare`，link profile 会立即使用新的 `lib/`。需要模拟发布拷贝时使用：
+修改源码后运行 `pnpm run prepare`，link profile 会立即使用新的 `lib/`；经 `omdsh` 启动的会话中执行 `/reload` 即可原地载入新代码，无需退出终端。需要模拟发布拷贝时使用：
 
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add file:.

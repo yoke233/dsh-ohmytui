@@ -4,7 +4,7 @@
 
 **为 DeepSeek Harness 带来 OMP 风格、可配置、可远程控制的终端界面。**
 
-独立 TUI profile bundle · 动态深浅主题 · 持久会话 · 微信 iLink 桥
+独立 TUI profile bundle · 动态深浅主题 · 持久会话 · `/reload` 无感重载 · 微信 iLink 桥
 
 [快速开始](#快速开始) · [功能](#为什么使用它) · [命令](#常用操作) · [配置](#配置) · [开发](#参与开发)
 
@@ -17,7 +17,7 @@
 `dsh-omp-tui` 是 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) 的独立 TUI profile bundle。它负责终端呈现、输入交互、主题、设置与微信桥；agent、模型、工具、会话持久化和沙箱仍由 dsh harness 提供。
 
 > [!IMPORTANT]
-> 当前项目进入低频维护阶段，现有 TUI 与微信远程能力可正常使用。遇到问题请提交 [Issue](https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/issues)，维护者会视情况处理。dsh 本身仍处于 developer preview，建议固定宿主版本与插件 release。
+> 推荐通过 **`omdsh` 启动器**使用本插件：它自动安装/升级 profile，并作为 `/reload` 的监督进程，让插件更新无需退出终端即可生效。dsh 本身仍处于 developer preview，建议固定宿主版本与插件 release。遇到问题请提交 [Issue](https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/issues)。
 
 ## 为什么使用它
 
@@ -27,6 +27,7 @@
 | **动态主题** | 98 个 OMP 主题，支持跟随终端明暗、固定主题及逐角色 RGB 覆盖 |
 | **完整会话流** | 新建、命名、恢复、切换会话，以及运行中消息 steer |
 | **内置控制面板** | 在 TUI 中选择模型、思考等级、agent preset、权限与供应商 |
+| **无感重载** | 经 `omdsh` 启动后，`/reload` 原地重启插件运行时并续接当前会话，插件升级与本地代码修改即刻生效 |
 | **响应式布局** | 窄终端自动压缩次要信息，优先保留模式、目录、Git 与上下文用量 |
 | **微信远程桥** | 通过官方 ClawBot / iLink 通道发送任务、查看进度并接收结果 |
 
@@ -52,22 +53,29 @@
 - dsh `0.1.1-rc.2`
 - 推荐 truecolor 终端；Nerd Font 用于完整图标显示
 
-### 1. 安装 release
+### 1. 安装（推荐：omdsh）
 
-如果尚未安装 pnpm：
+安装官方 dsh、pnpm 与本插件的 release 包（全局安装后 `omdsh` 命令即在 PATH 中）：
 
 ```sh
-npm install --global pnpm@11.7.0
+npm install --global pnpm@11.7.0 @deepseek-ai/dsh@0.1.1-rc.2
+npm install --global \
+  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
-将当前 release 安装到 `tui` profile：
+之后无需手工初始化 profile：`omdsh` 首次运行会自动把本插件安装进 `tui` profile，之后检测到旧版本时自动升级。release tarball 已包含构建后的 `lib/`，用户机器无需编译。
+
+<details>
+<summary>手工安装到 profile（不经 omdsh）</summary>
 
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.2.3/dsh-omp-tui-0.2.3.tgz
+  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
-release tarball 已包含构建后的 `lib/`，用户机器无需编译。升级、卸载、从 Git tag 安装及常见问题见 [`docs/INSTALL.md`](docs/INSTALL.md)。
+</details>
+
+升级、卸载、从 Git tag 安装及常见问题见 [`docs/INSTALL.md`](docs/INSTALL.md)。
 
 ### 2. 配置模型
 
@@ -88,18 +96,20 @@ export DEEPSEEK_BASE_URL='http://localhost:3000/v1'       # Git Bash / zsh
 $env:DEEPSEEK_BASE_URL = 'http://localhost:3000/v1'      # PowerShell
 ```
 
-环境变量必须在启动 dsh 的同一个 shell 中可见。启动后可用 `/model` 添加或切换 provider、model 与 reasoning effort。
+环境变量必须在启动的同一个 shell 中可见。启动后可用 `/model` 添加或切换 provider、model 与 reasoning effort。
 
 ### 3. 启动
 
+推荐经 `omdsh` 启动——它是 `/reload` 的监督进程，插件更新可在会话内原地生效：
+
 ```sh
-npx --yes @deepseek-ai/dsh@0.1.1-rc.2 --profile tui
+omdsh
 
 # 恢复已有会话
-npx --yes @deepseek-ai/dsh@0.1.1-rc.2 --profile tui --resume <session-id>
+omdsh --resume <session-id>
 ```
 
-如果已全局安装官方 dsh，也可直接运行：
+也可以直接用官方 dsh 启动（此时没有监督进程，`/reload` 会提示并拒绝，插件更新需退出重启）：
 
 ```sh
 dsh --profile tui
@@ -136,11 +146,12 @@ dsh --profile tui --dump-config
 | `/help` | 查看运行中实例的完整命令与快捷键 |
 | `/model` | 选择 provider、model 和思考等级 |
 | `/new` · `/resume [id]` | 新建或恢复持久化会话 |
+| `/reload` | 重启插件运行时并续接当前会话（需经 `omdsh` 启动；回合运行中会要求先等待结束） |
 | `/mode [preset]` | 切换 `standard`、`minimal`、`code`、`cordis` 或本地 preset |
 | `/permission [preset]` | 切换沙箱与审批策略 |
 | `/theme` · `/palette` | 切换主题并检查实际颜色角色 |
 | `/settings` | 打开可视化设置面板 |
-| `/skills` · `skill:<name>` | 浏览或直接调用技能 |
+| `/skills` · `/skill:<name>` | 浏览或直接调用技能 |
 
 更多命令以运行中的 `/help` 为准。`read-only` 与 `workspace-write` 模式下，越权操作会显示授权原因并等待批准；`full-access` 不显示审批框。
 
@@ -188,20 +199,17 @@ dsh --profile tui --dump-config
 - 官方 settings provider 存在时，界面选择会写入 `$DSH_HOME/settings.yaml`。
 - `/permission` 的选项来自当前部署，用户自定义 preset 也会进入提示与补全。
 
-## `omdsh` 启动器
+## `omdsh` 启动器与 `/reload`
 
-发布包还提供 `omdsh`：它调用系统 `PATH` 中的官方 `dsh`，首次运行时安装本插件，检测到旧版本时自动升级，然后启动 `--profile tui`。
+`omdsh` 是本插件推荐的启动方式（安装方法见[快速开始](#快速开始)），它做三件事：
 
-```sh
-# 先安装官方 dsh
-npm install --global @deepseek-ai/dsh@0.1.1-rc.2
+1. **引导 profile**：调用系统 `PATH` 中的官方 `dsh`；首次运行自动把本插件安装进 `tui` profile，检测到旧版本时自动升级，然后启动 `--profile tui`。所有参数原样透传（如 `--resume <session-id>`）。
+2. **监督 `/reload` 的世代重启**：TUI 里执行 `/reload` 时，当前 dsh 进程写下交接信息后优雅退出，`omdsh` 在同一终端启动新一代进程并续接当前会话（空白会话原地重建同一身份）。新进程意味着全新模块图——任意插件升级、`link:` 代码变化或依赖变化都随之生效，无需退出终端。
+3. **透传退出**：正常退出（如 `Ctrl+C` 双击）时原样传递退出码，不留驻后台。
 
-# 将 tui profile 的 .bin 目录加入 PATH 后
-omdsh
-omdsh --resume <session-id>
-```
+直接用 `dsh --profile tui` 启动时没有监督进程，`/reload` 会提示并拒绝；插件更新需退出后重新启动。`omdsh` 自身更新后也需要退出重启一次才能换上新启动器。
 
-设置 `OMDSH_NO_BOOTSTRAP=1` 可跳过自动安装/升级；`DSH_REAL` 可指定真实 dsh 可执行文件；`DSH_DEBUG=1` 只打印解析后的命令。
+环境变量：`OMDSH_NO_BOOTSTRAP=1` 跳过自动安装/升级；`DSH_REAL` 指定真实 dsh 可执行文件；`DSH_DEBUG=1` 只打印将要执行的命令。
 
 ## 参与开发
 
@@ -213,11 +221,14 @@ pnpm run check
 pnpm run prepare
 ```
 
-测试使用 Node 原生 `node:test` 直接运行 TypeScript 源码。修改源码并生成 `lib/` 后，可将本地仓库链接到 profile：
+测试使用 Node 原生 `node:test` 直接运行 TypeScript 源码。本地开发推荐把仓库以 `link:` 安装进 profile，然后经 `omdsh` 启动——每次改完源码只需重建 `lib/` 并在 TUI 里 `/reload`，新代码原地生效、会话不断：
 
 ```sh
-npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add link:.
-dsh --profile tui
+dsh plugin --profile tui add link:.
+omdsh
+
+# 迭代循环：改源码 → 重建 → 在 TUI 里 /reload
+pnpm run prepare
 ```
 
 dsh 上游合约变化时，请先更新 [`docs/contracts.md`](docs/contracts.md)，再同步源码、`cordis.patch.yml`、依赖和测试。

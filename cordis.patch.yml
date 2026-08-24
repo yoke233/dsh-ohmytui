@@ -111,8 +111,9 @@
     - id: tui-startup
       name: 'dsh-omp-tui/startup'
 
-    # Temporarily disabled while the Profile generation design remains unresolved.
-    # Keep the row and module source so the investigation can be resumed explicitly.
+    # Historical in-process reload investigation (route A), superseded by the
+    # omdsh supervisor respawn: /reload is handled inside the TUI row and needs
+    # no service row. Keep the module source for the docs/RELOAD_ISSUE.md record.
     - id: tui-reload
       name: 'dsh-omp-tui/reload'
       disabled: true

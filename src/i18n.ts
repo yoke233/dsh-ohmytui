@@ -129,6 +129,7 @@ export type Messages = {
   noticeReloadUnchanged: string
   noticeReloadBusy: string
   noticeReloadFailed: string
+  noticeReloadUnsupervised: string
   noticeThinkSet: string
   noticeThinkAlready: string
   noticeThinkUnknown: string
@@ -336,7 +337,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpNew: '新建会话',
     helpResume: '恢复持久化会话',
     helpCopy: '复制最近一条助手回复',
-    helpReload: '重新载入当前 Profile 插件与 TUI 代码',
+    helpReload: '重启进程重载 Profile 插件并续接当前会话',
     helpDetails: '查看会话诊断',
     helpSkills: '列出可用技能',
     helpSkillInvoke: '以指令方式调用技能',
@@ -385,7 +386,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     contextPreview: '{category} 预计占用 {tokens} token。',
     cmdResume: '恢复持久化会话',
     cmdCopy: '复制最近一条助手回复',
-    cmdReload: '重新载入当前 Profile 插件与 TUI 代码',
+    cmdReload: '重启进程重载 Profile 插件并续接当前会话',
     cmdDetails: '查看会话诊断',
     cmdSkills: '列出可用技能',
 
@@ -418,12 +419,13 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeImagePasteFailed: '剪贴板图片粘贴失败：{error}',
     noticeImageSubmitFailed: '图片提交失败：{error}',
     noticeImageCommandUnsupported: '命令 /{name} 不接受图片附件。',
-    noticeReloading: '正在重新载入 Profile 插件与 TUI 代码…',
+    noticeReloading: '正在重载：进程即将重启并续接当前会话…',
     noticeReloaded: 'Profile 插件已更新（新增 {added}，移除 {removed}），正在刷新 TUI。',
     noticeReloadBusy: '请等待当前回合结束后再重新载入插件。',
     noticeReloadedConfig: 'Profile 配置已更新，正在刷新 TUI。',
     noticeReloadUnchanged: 'Profile 配置未变化，正在刷新 TUI 代码。',
     noticeReloadFailed: 'Profile 插件或 TUI 代码重新载入失败：{error}',
+    noticeReloadUnsupervised: '/reload 需要 omdsh 启动器托管；请退出后通过 omdsh 重新启动。',
     noticeThinkSet: '思考等级已切换为 {name}（{id}）。',
     noticeThinkAlready: '当前思考等级已是 {name}（{id}）。',
     noticeThinkUnknown: '当前模型不支持思考等级：{name}',
@@ -627,7 +629,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpNew: 'start a new session',
     helpResume: 'resume a persisted session',
     helpCopy: 'copy the latest assistant response',
-    helpReload: 'reload profile plugins and live TUI code',
+    helpReload: 'restart the process to reload profile plugins and resume this session',
     helpDetails: 'show session diagnostics',
     helpSkills: 'list available skills',
     helpSkillInvoke: 'invoke a skill as instructions',
@@ -643,7 +645,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdNew: 'Start a new session',
     cmdResume: 'Resume a persisted session',
     cmdCopy: 'Copy the latest assistant response',
-    cmdReload: 'Reload profile plugins and live TUI code',
+    cmdReload: 'Restart the process to reload profile plugins and resume this session',
     cmdDetails: 'Show session diagnostics',
     cmdSkills: 'List available skills',
 
@@ -709,12 +711,13 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeImagePasteFailed: 'Clipboard image paste failed: {error}',
     noticeImageSubmitFailed: 'Image submission failed: {error}',
     noticeImageCommandUnsupported: 'Command /{name} does not accept image attachments.',
-    noticeReloading: 'Reloading profile plugins and TUI code…',
+    noticeReloading: 'Reloading: the process will restart and resume this session…',
     noticeReloaded: 'Profile plugins updated ({added} added, {removed} removed); refreshing the TUI.',
     noticeReloadedConfig: 'Profile configuration updated; refreshing the TUI.',
     noticeReloadUnchanged: 'Profile configuration is unchanged; refreshing live TUI code.',
     noticeReloadBusy: 'Wait for the current turn to finish before reloading plugins.',
     noticeReloadFailed: 'Failed to reload profile plugins or TUI code: {error}',
+    noticeReloadUnsupervised: '/reload needs the omdsh supervisor; exit and start through omdsh instead.',
     noticeThinkSet: 'Reasoning effort switched to {name} ({id}).',
     noticeThinkAlready: 'Reasoning effort is already {name} ({id}).',
     noticeThinkUnknown: 'The current model does not support reasoning effort: {name}',
