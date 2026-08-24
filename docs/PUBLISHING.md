@@ -9,7 +9,7 @@
 仓库 URL 确定后，在本地执行：
 
 ```sh
-git remote add origin https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi.git
+git remote add origin https://github.com/yoke233/dsh-ohmytui.git
 git branch -M main
 git push --set-upstream origin main
 ```
@@ -20,11 +20,11 @@ git push --set-upstream origin main
 {
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi.git"
+    "url": "git+https://github.com/yoke233/dsh-ohmytui.git"
   },
-  "homepage": "https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi#readme",
+  "homepage": "https://github.com/yoke233/dsh-ohmytui#readme",
   "bugs": {
-    "url": "https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/issues"
+    "url": "https://github.com/yoke233/dsh-ohmytui/issues"
   }
 }
 ```

@@ -17,7 +17,7 @@
 `dsh-omp-tui` 是 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) 的独立 TUI profile bundle。它负责终端呈现、输入交互、主题、设置与微信桥；agent、模型、工具、会话持久化和沙箱仍由 dsh harness 提供。
 
 > [!IMPORTANT]
-> 推荐通过 **`omdsh` 启动器**使用本插件：它自动安装/升级 profile，并作为 `/reload` 的监督进程，让插件更新无需退出终端即可生效。dsh 本身仍处于 developer preview，建议固定宿主版本与插件 release。遇到问题请提交 [Issue](https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/issues)。
+> 推荐通过 **`omdsh` 启动器**使用本插件：它自动安装/升级 profile，并作为 `/reload` 的监督进程，让插件更新无需退出终端即可生效。dsh 本身仍处于 developer preview，建议固定宿主版本与插件 release。遇到问题请提交 [Issue](https://github.com/yoke233/dsh-ohmytui/issues)。
 
 ## 为什么使用它
 
@@ -60,7 +60,7 @@
 ```sh
 npm install --global pnpm@11.7.0 @deepseek-ai/dsh@0.1.1-rc.2
 npm install --global \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
+  https://github.com/yoke233/dsh-ohmytui/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
 之后无需手工初始化 profile：`omdsh` 首次运行会自动把本插件安装进 `tui` profile，之后检测到旧版本时自动升级。release tarball 已包含构建后的 `lib/`，用户机器无需编译。
@@ -70,7 +70,7 @@ npm install --global \
 
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
+  https://github.com/yoke233/dsh-ohmytui/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
 </details>
@@ -214,8 +214,8 @@ dsh --profile tui --dump-config
 ## 参与开发
 
 ```sh
-git clone https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi.git
-cd dsh-tui-plugin-OhMyPi
+git clone https://github.com/yoke233/dsh-ohmytui.git
+cd dsh-ohmytui
 pnpm install --frozen-lockfile
 pnpm run check
 pnpm run prepare

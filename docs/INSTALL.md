@@ -41,7 +41,7 @@ npm install --global pnpm@11.7.0
 # 或：corepack enable
 
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
+  https://github.com/yoke233/dsh-ohmytui/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
 tarball 已经包含构建后的 `lib/`，安装时不需要在用户机器上编译项目，也不会执行 Git 依赖的 `prepare` 构建流程。
@@ -53,7 +53,7 @@ Release 尚未创建或需要安装某个提交时，可以直接安装 Git 仓�
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
   --allow-build=dsh-omp-tui \
-  github:mytianyi0712/dsh-tui-plugin-OhMyPi#v0.5.0
+  github:yoke233/dsh-ohmytui#v0.5.0
 ```
 
 不要省略 `--allow-build=dsh-omp-tui`。如果 pnpm 已打印了 `allowBuilds` 建议，也可以按提示将该精确包名写入 `~/.config/pnpm/rc` 或 profile 的 `pnpm-workspace.yaml` 后重试。
@@ -63,7 +63,7 @@ npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
   --allow-build=dsh-omp-tui \
-  github:mytianyi0712/dsh-tui-plugin-OhMyPi#main
+  github:yoke233/dsh-ohmytui#main
 ```
 
 ## 启动
@@ -136,7 +136,7 @@ $env:DEEPSEEK_BASE_URL = 'http://localhost:3000/v1'
 
 ```sh
 dsh plugin --profile tui add \
-  https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
+  https://github.com/yoke233/dsh-ohmytui/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
 ```
 
 若当前依赖跟踪的是 `main`，可以更新 Git 依赖：
@@ -165,8 +165,8 @@ dsh plugin --profile tui remove dsh-omp-tui
 ## 本地开发安装
 
 ```sh
-git clone https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi.git
-cd dsh-tui-plugin-OhMyPi
+git clone https://github.com/yoke233/dsh-ohmytui.git
+cd dsh-ohmytui
 pnpm install
 pnpm run check
 pnpm run prepare

@@ -7,11 +7,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi.git"
+    "url": "git+https://github.com/yoke233/dsh-ohmytui.git"
   },
-  "homepage": "https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi#readme",
+  "homepage": "https://github.com/yoke233/dsh-ohmytui#readme",
   "bugs": {
-    "url": "https://github.com/mytianyi0712/dsh-tui-plugin-OhMyPi/issues"
+    "url": "https://github.com/yoke233/dsh-ohmytui/issues"
   },
   "keywords": [
     "deepseek",
