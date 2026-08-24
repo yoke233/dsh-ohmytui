@@ -10,16 +10,29 @@ export async function run(tui) {
 
   const helpOffset = tui.mark()
   tui.submit('/help')
-  await tui.waitForOutput(/\/reload —|\/settings —/, {
+  await tui.waitForOutput(/\/settings —/, {
     since: helpOffset,
     timeoutMs: 15_000,
     label: 'help command list output',
   })
-  await tui.waitForScreen(/\/reload —|\/settings —/, {
+  await tui.waitForScreen(/\/settings —/, {
     timeoutMs: 15_000,
     label: 'visible help command list',
   })
+  const helpScreen = await tui.screenText()
+  if (/\/reload —/.test(helpScreen)) {
+    throw new Error('disabled /reload command is still present in help')
+  }
   const help = await tui.snapshot('smoke-help')
+
+  const reloadOffset = tui.mark()
+  tui.submit('/reload')
+  await tui.waitForOutput(/未知命令：reload|Unknown command: reload/, {
+    since: reloadOffset,
+    timeoutMs: 15_000,
+    label: 'disabled reload command rejection',
+  })
+
   const pidAfter = tui.pid()
 
   if (pidBefore !== pidAfter) {
@@ -30,6 +43,7 @@ export async function run(tui) {
     ready: true,
     helpRendered: true,
     inputAccepted: true,
+    reloadDisabled: true,
     pidBefore,
     pidAfter,
     processStayedLive: true,

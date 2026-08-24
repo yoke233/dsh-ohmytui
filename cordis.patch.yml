@@ -111,10 +111,11 @@
     - id: tui-startup
       name: 'dsh-omp-tui/startup'
 
-    # Recompose the live profile after bundle installation without replacing
-    # the terminal process or the mounted TUI row.
+    # Temporarily disabled while the Profile generation design remains unresolved.
+    # Keep the row and module source so the investigation can be resumed explicitly.
     - id: tui-reload
       name: 'dsh-omp-tui/reload'
+      disabled: true
 
     # WeChat (iLink) bridge: opt-in remote control via the official Tencent
     # WeChat channel. Enable this entry in a later profile patch when needed;
@@ -125,7 +126,7 @@
 
     - id: tui
       name: 'dsh-omp-tui'
-      inject: [tuiStartup, approval]
+      inject: [tuiStartup, approval, jobs]
       config:
         sessionId: !!js ctx.tuiStartup.sessionId ?? ctx.tuiStartup.resumeSessionId
         showReasoning: true

@@ -9,6 +9,14 @@ which is licensed under BSD-3-Clause. The patch itself only modifies the
 MIT-licensed `@earendil-works/pi-tui` package. Both licenses are reproduced
 below.
 
+`src/image-paste.ts` adapts the clipboard probing and marker-based draft flow
+from [`@pi-archimedes/image-paste`](https://www.npmjs.com/package/@pi-archimedes/image-paste),
+which is licensed under the MIT License:
+
+> Copyright (c) 2026 Daniel Cherubini and contributors
+
+The MIT terms reproduced below apply to that adapted portion as well.
+
 ## BSD-3-Clause (turtle-ui)
 
 Redistribution and use in source and binary forms, with or without

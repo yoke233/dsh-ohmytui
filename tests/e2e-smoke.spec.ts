@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -11,7 +11,7 @@ import { join } from 'node:path'
  *   1. bootstrap the tui profile into a fresh DSH_HOME
  *   2. start `dsh --profile tui` inside a pseudo-tty
  *   3. type `/help` and wait for the rendered help card
- *   4. reload the live profile and use the same input again
+ *   4. verify the disabled `/reload` command is absent
  *   5. send Ctrl+C twice to exit
  *
  * The test is opt-in: set `DSH_E2E=1` on Linux where `script` can allocate a
@@ -82,63 +82,7 @@ describe('e2e smoke', () => {
         15_000,
       )
       assert.match(help, /键盘快捷键|Shortcuts|\/palette/)
-
-      const fixtureDir = join(dshHome, 'reload-fixture')
-      mkdirSync(fixtureDir, { recursive: true })
-      writeFileSync(join(fixtureDir, 'package.json'), JSON.stringify({
-        name: 'dsh-e2e-reload-fixture',
-        version: '1.0.0',
-        type: 'module',
-        main: './index.js',
-        dsh: { bundle: { patch: './cordis.patch.yml' } },
-      }, undefined, 2) + '\n')
-      writeFileSync(join(fixtureDir, 'cordis.patch.yml'), [
-        '- insert:',
-        '    - id: reload-command-fixture',
-        "      name: 'dsh-e2e-reload-fixture'",
-        '',
-      ].join('\n'))
-      writeFileSync(join(fixtureDir, 'index.js'), [
-        "export const inject = ['commands']",
-        'export function apply(ctx) {',
-        '  ctx.commands.register({',
-        "    name: 'reload-probe',",
-        "    description: 'Verify in-process profile reload',",
-        "    handler: () => ({ kind: 'success', text: 'reload fixture active' }),",
-        '  })',
-        '}',
-        '',
-      ].join('\n'))
-      const installed = spawnSync(
-        'dsh',
-        ['plugin', '--profile', 'tui', 'add', `file:${fixtureDir}`],
-        { cwd: process.cwd(), env: { ...process.env, DSH_HOME: dshHome }, encoding: 'utf8' },
-      )
-      assert.equal(installed.status, 0, `${installed.stdout}\n${installed.stderr}`)
-
-      child.stdin.write('/reload\n')
-      const reloaded = await collectUntil(
-        child,
-        text => text.includes('Profile 插件已重新载入') || text.includes('Profile plugins reloaded'),
-        15_000,
-      )
-      assert.match(reloaded, /Profile 插件已重新载入|Profile plugins reloaded/)
-
-      child.stdin.write('/reload-probe\n')
-      const pluginCommand = await collectUntil(
-        child,
-        text => text.includes('reload fixture active'),
-        15_000,
-      )
-      assert.match(pluginCommand, /reload fixture active/)
-
-      child.stdin.write('/help\n')
-      const helpAfterReload = await collectUntil(
-        child,
-        text => text.includes('键盘快捷键') || text.includes('Shortcuts') || text.includes('/reload'),
-        15_000,
-      )
-      assert.match(helpAfterReload, /键盘快捷键|Shortcuts|\/reload/)
+      assert.doesNotMatch(help, /\/reload\s+—/)
 
       // First Ctrl+C interrupts / exits an idle turn; a second one quits.
       child.stdin.write('\x03')

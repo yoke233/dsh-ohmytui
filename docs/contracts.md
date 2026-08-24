@@ -323,6 +323,33 @@ export interface TokenUsage {
 export interface LlmFailure { message: string; code: string; status?: number; providerRetryAfterMs?: number; requestId?: string; }
 ```
 
+### 5.5 图片附件 — `@deepseek-ai/dsh-attachment`
+
+```ts
+export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+export interface SaveImageAttachment { data: Uint8Array; mediaType: ImageMediaType; name?: string; }
+export interface EncodedImageAttachment { mediaType: ImageMediaType; data: string; name?: string; }
+export interface ImageAttachmentRef {
+  attachmentId: AttachmentId; mediaType: ImageMediaType; bytes: number; width: number; height: number; name?: string;
+  originalDimensions?: { width: number; height: number };
+}
+export interface ImageAttachmentLimits {
+  maxImageBytes: number; maxImagesPerMessage: number; maxMessageImageBytes: number;
+  maxImagePixels: number; maxImageDimension: number; mediaTypes: readonly ImageMediaType[];
+}
+class AttachmentStore extends Service { // ctx.attachments
+  readonly imageLimits: ImageAttachmentLimits;
+  validateImage(input: SaveImageAttachment): Promise<void>;       // 草稿准入校验，不持久化
+  saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]>; // 全批校验后有序提交
+  saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>;
+  readImage(ref: ImageAttachmentRef, signal?): Promise<StoredImageAttachment>;
+}
+```
+
+- 会话事件只保存 `ImageAttachmentRef`，不得保存 base64、本地路径、浏览器 URL 或 provider URL。
+- 未提交的 composer 图片由前端临时持有，并按 `maxImagesPerMessage` / `maxMessageImageBytes` 限制草稿内存；切换前台会话时丢弃图片字节与对应标记；发布 `user/message` 前必须先 `saveImages`，再构造 `{ type: 'image', attachment: ref }`。
+- `saveImages` 统一执行单图、批次数量和总字节限制；失败不返回部分引用。
+
 ---
 
 ## 6. 会话持久化/投影/查询 —（scout 章节，待补）
@@ -434,9 +461,11 @@ class CommandRuntime extends Service {
   register(definition: CommandDefinition): () => void;   // { name, description, input?, recordInput?, handler }
   list(agent: Agent): readonly CommandDescriptor[];
   find(agent: Agent, name): CommandDefinition | undefined;
-  execute(agent, line, images, signal): Promise<CommandExecution | undefined>;  // rc8 新增 images: base64 图片批次；语法/未知名 → undefined 不记日志
+  execute(agent, line, images: readonly EncodedImageAttachment[], signal): Promise<CommandExecution | undefined>; // 语法/未知名 → undefined 不记日志
 }
 parseCommand(line: string): ParsedCommand | undefined;
+// CommandInputDescriptor.images?: boolean；未声明图片输入的命令必须拒绝附件。
+// CommandInvocation.attachments 为执行器已持久化的 readonly ImageBlock[]，由 handler 决定如何使用。
 // SessionEvent：'command/run' { commandId, name, args?, source } / 'command/done' { commandId, kind, text?, sourceEventSeq? }
 // CommandResult: { kind:'success', text?, sourceEventSeq? } | { kind:'error', text }
 ```
@@ -503,6 +532,34 @@ scopeOf(agent.ctx): ScopeKey | undefined; // TUI 查询必须传 scope，才能�
 isUserInvocable(skill): boolean;   // TUI `/skill:` 列表过滤
 ```
 
+### 7.9 dsh-jobs（`ctx.jobs`）
+
+```ts
+type JobStatus = 'running' | 'stopping' | 'completed' | 'killed' | 'failed';
+interface JobSnapshot {
+  id: JobId; kind: JobKind; label: string; outputLimitBytes?: number;
+  ownerSession?: SessionId; status: JobStatus; detail?: string;
+  startedAt: number; finishedAt?: number; reported: boolean;
+}
+abstract class JobRegistry extends Service {
+  start(spec: JobStart): JobId;
+  list(caller?: Agent): JobSnapshot[];
+  get(id: JobId, caller?: Agent): JobSnapshot;
+  read(id: JobId, caller?: Agent): JobRead;
+  kill(id: JobId, caller?: Agent, reason?: string): 'requested' | 'already-finished';
+  wait(id: JobId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<JobSnapshot>;
+  onJobDone(listener: JobDoneListener): () => void;
+  onJobsChanged(listener: JobsChangedListener): () => void;
+  attachController(name: string): () => void;
+}
+```
+
+- `list/get/read/kill/wait` 以 caller 的 session id 做 owner 访问隔离；任务 id 可预测，不能把 id 当授权边界。
+- `list(agent)` 返回该 agent 拥有的任务及无 owner 的任务快照；每次返回新对象，不是 live registry state。
+- `onJobsChanged(owner)` 是 owner 粒度的全量重读通知；`owner === undefined` 表示无 owner 任务发生变化，对所有 caller 可见。
+- 活跃状态为 `running | stopping`；终态为 `completed | killed | failed`。
+- dsh base 已挂载 `dsh-jobs-local` 和模型侧 `dsh-tool-jobs`；TUI 只消费 registry，不复制任务生命周期。
+
 ---
 
 ## 8. 配置行 schema（cordis.patch.yml 编写依据）
@@ -542,11 +599,11 @@ interface Config {
 2. **取 agent**：`ctx.agents.get(sessionId)` → `Agent`；`agent.session.events` 为不可变日志快照。
 3. **渲染主通道**：`session/event` 事件（追加后馈送）+ 初始 `agent.session.events` 重放（种子不发出）。
 4. **状态**：`agent/status` 事件 → 编辑框边框/指示器；`agent.session.header.cwd` 为 workspace。
-5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；idle 时启动回合，running 时由最近的下一 step 领取。`agent/inbox/inserted` 立即投影到待处理面板，正式 `user/message` 到达后按 message id 移除预览并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。
+5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；剪贴板图片在草稿中只保留内存字节与 `[Image #N]` 标记，提交时先由 `ctx.attachments.saveImages` 持久化仍保留标记的图片，再把 durable image block 加入 `content`。idle 时启动回合，running 时由最近的下一 step 领取。`agent/inbox/inserted` 立即投影到待处理面板，正式 `user/message` 到达后按 message id 移除预览并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。
 6. **中断**：`agent.cancel({ kind: 'user' })`。
 7. **提问**：`ctx.userQuestions.registerProvider(provider)`；对话框完成后 resolve `AskUserQuestionAnswer`。
 8. **授权**：监听 waterfall `approval/request`；只认领当前前台 agent，弹框返回 `allowed-once`/`rejected`，中止返回 `cancelled`，其他 agent 调用 `next()`。
-9. **命令**：`ctx.commands.execute(agent, line, images, signal)`（rc8 起必须传 `images`，TUI 当前传 `[]`）；`/help` 列表用 `ctx.commands.list(agent)`。
+9. **命令**：`ctx.commands.execute(agent, line, images, signal)`；普通命令传 `[]`，带图片标记的草稿仅在命令声明 `input.images` 时传入 base64 wire batch，否则前端拒绝提交并保留草稿。`/help` 列表用 `ctx.commands.list(agent)`。
 10. **模型选择**：`installModelSelection(agent.ctx, selectionRef)` + `agentDefaultModel.currentSelection()/saveSelection()`。
 11. **投影消费**：`ctx.sessionProjections.snapshot(session)` 或 `sessionProjectionCache.cachedSnapshot(header)`（列表零 I/O）。
-12. **Profile 与 TUI 代码重载**：`@deepseek-ai/dsh-app-boot.loadProfile()` 重新解析 Bundle 清单及 Profile patch，`loadOptionalPatches()` 读取 Home patch；`ctx.loader.resolve('include').update({ config: { ...current, patches } })` 通过根 Include 事务性协调子树。启动器专属的 `--patch` 与硬覆盖从初始 mounted patch 的 Profile 前缀之后保留。配置重载前比较 `tui` Fiber 及其活动 service provider 对应的配置行，候选若改变其中任何一行则在提交前拒绝，其他候选应用失败由 Loader 回滚。`/reload` 在配置阶段完成后还会按 `tui` entry 的 base URL 解析当前模块 URL，将它加入 Cordis HMR 的 `stashed` 集合并调用 `partialReload()`；HMR 负责清除 Node 22/24 ESM/CJS 缓存并事务性替换 TUI Fiber。进程 PID 与当前 Agent/Session 保持不变，但 TUI 组件树会由新代码重新创建。rc.2 的这一代码重载路径依赖 `@deepseek-ai/cordis-plugin-hmr` 1.0.16 的运行时 `stashed` / `partialReload()` 形状，升级上游时必须重新核对。
+12. **Profile 与 TUI 代码重载（暂时关闭）**：当前 bundle 将 `tui-reload` Profile 行标记为 disabled，TUI 不注入 `tuiReload`，也不提供 `/reload` 命令、帮助项或补全项。`src/reload.ts`、包导出与专项测试仅作为未启用的调查 WIP 保留，不能视为运行时能力；恢复前必须先解决 `docs/RELOAD_ISSUE.md` 记录的 generation 与私有 HMR 边界，并重新完成 Loader 与 ConPTY 验收。

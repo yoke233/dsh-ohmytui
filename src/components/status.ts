@@ -236,6 +236,7 @@ export class ComposerFooterComponent implements Component {
     private readonly rightTemplate: readonly TuiPromptToken[],
     private readonly resolve: (name: string) => string | undefined,
     private readonly palette: Palette,
+    private readonly resolveExtra?: () => string | undefined,
   ) {}
 
   invalidate(): void {}
@@ -244,9 +245,17 @@ export class ComposerFooterComponent implements Component {
     const safeWidth = Math.max(1, width)
     const contentWidth = safeWidth <= 2 ? safeWidth : safeWidth - 2
     const full = renderTuiPromptTemplate(this.rightTemplate, this.resolve)
-    const text = visibleWidth(full) <= contentWidth
+    const extra = this.resolveExtra?.()
+    const fullWithExtra = extra === undefined || extra === ''
       ? full
-      : this.renderCompact(contentWidth) ?? truncateToWidth(full, contentWidth, '')
+      : full === '' ? extra : `${full} ${this.palette.muted('·')} ${extra}`
+    // The jobs indicator is intentionally lower priority than configured footer
+    // content: show it only when the uncompressed footer has spare width.
+    const text = visibleWidth(fullWithExtra) <= contentWidth
+      ? fullWithExtra
+      : visibleWidth(full) <= contentWidth
+        ? full
+        : this.renderCompact(contentWidth) ?? truncateToWidth(full, contentWidth, '')
     return safeWidth <= 2 ? [text] : [`  ${text}`]
   }
 

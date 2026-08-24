@@ -30,6 +30,7 @@ export type Messages = {
   helpCtrlC: string
   helpCtrlO: string
   helpCtrlR: string
+  helpImagePaste: string
   helpCommands: string
   helpPalette: string
   helpHelp: string
@@ -62,6 +63,15 @@ export type Messages = {
   cmdTheme: string
   cmdSettings: string
   cmdContext: string
+  cmdJobs: string
+  jobsEmpty: string
+  jobsUsage: string
+  jobsSummary: string
+  jobsStatusRunning: string
+  jobsStatusStopping: string
+  jobsStatusCompleted: string
+  jobsStatusKilled: string
+  jobsStatusFailed: string
   // --- /context full-screen inspector --------------------------------------
   contextTitle: string
   contextCategory: string
@@ -108,6 +118,11 @@ export type Messages = {
   noticeModelSet: string
   noticeCopySuccess: string
   noticeCopyEmpty: string
+  noticeImagePasteEmpty: string
+  noticeImagePasteAttached: string
+  noticeImagePasteFailed: string
+  noticeImageSubmitFailed: string
+  noticeImageCommandUnsupported: string
   noticeReloading: string
   noticeReloaded: string
   noticeReloadedConfig: string
@@ -312,6 +327,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpCtrlC: '中断当前回合',
     helpCtrlO: '切换工具卡显示：折叠 → 展开 → 隐藏',
     helpCtrlR: '显示 / 隐藏思考块',
+    helpImagePaste: '附加剪贴板图片',
     helpCommands: '命令',
     helpPalette: '查看调色板角色表',
     helpHelp: '本帮助列表',
@@ -336,6 +352,15 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdNew: '新建会话',
     cmdSettings: '打开可视化设置',
     cmdContext: '查看上下文窗口用量',
+    cmdJobs: '查看后台任务',
+    jobsEmpty: '暂无后台任务。',
+    jobsUsage: '用法：/jobs',
+    jobsSummary: '后台任务（{active} 个运行中，共 {total} 个）',
+    jobsStatusRunning: '运行中',
+    jobsStatusStopping: '停止中',
+    jobsStatusCompleted: '已完成',
+    jobsStatusKilled: '已取消',
+    jobsStatusFailed: '已失败',
     contextTitle: '上下文用量',
     contextCategory: '分类：',
     contextSystemPrompt: '系统提示词',
@@ -388,6 +413,11 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeModelSet: '模型已设为 {provider}/{model}。',
     noticeCopySuccess: '已复制最近一条助手回复。',
     noticeCopyEmpty: '当前会话还没有可复制的助手回复。',
+    noticeImagePasteEmpty: '剪贴板中没有图片。',
+    noticeImagePasteAttached: '已附加剪贴板图片 {marker}。',
+    noticeImagePasteFailed: '剪贴板图片粘贴失败：{error}',
+    noticeImageSubmitFailed: '图片提交失败：{error}',
+    noticeImageCommandUnsupported: '命令 /{name} 不接受图片附件。',
     noticeReloading: '正在重新载入 Profile 插件与 TUI 代码…',
     noticeReloaded: 'Profile 插件已更新（新增 {added}，移除 {removed}），正在刷新 TUI。',
     noticeReloadBusy: '请等待当前回合结束后再重新载入插件。',
@@ -588,6 +618,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpCtrlC: 'interrupt the running turn',
     helpCtrlO: 'cycle tool cards: collapsed → expanded → hidden',
     helpCtrlR: 'toggle reasoning blocks',
+    helpImagePaste: 'attach a clipboard image',
     helpCommands: 'Commands',
     helpPalette: 'show the palette role table',
     helpHelp: 'this listing',
@@ -620,6 +651,15 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdTheme: 'Show or switch theme',
     cmdSettings: 'Open visual settings',
     cmdContext: 'Show context window usage',
+    cmdJobs: 'Show background jobs',
+    jobsEmpty: 'No background jobs.',
+    jobsUsage: 'Usage: /jobs',
+    jobsSummary: 'Background jobs ({active} running, {total} total)',
+    jobsStatusRunning: 'running',
+    jobsStatusStopping: 'stopping',
+    jobsStatusCompleted: 'completed',
+    jobsStatusKilled: 'cancelled',
+    jobsStatusFailed: 'failed',
     contextTitle: 'Context Usage',
     contextCategory: 'Category:',
     contextSystemPrompt: 'System Prompt',
@@ -664,6 +704,11 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeModelSet: 'Model set to {provider}/{model}.',
     noticeCopySuccess: 'Copied the latest assistant response.',
     noticeCopyEmpty: 'There is no assistant response to copy yet.',
+    noticeImagePasteEmpty: 'There is no image in the clipboard.',
+    noticeImagePasteAttached: 'Attached clipboard image {marker}.',
+    noticeImagePasteFailed: 'Clipboard image paste failed: {error}',
+    noticeImageSubmitFailed: 'Image submission failed: {error}',
+    noticeImageCommandUnsupported: 'Command /{name} does not accept image attachments.',
     noticeReloading: 'Reloading profile plugins and TUI code…',
     noticeReloaded: 'Profile plugins updated ({added} added, {removed} removed); refreshing the TUI.',
     noticeReloadedConfig: 'Profile configuration updated; refreshing the TUI.',

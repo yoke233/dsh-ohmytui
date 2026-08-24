@@ -39,17 +39,7 @@ Run the packaged startup/help smoke scenario:
 powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario smoke
 ```
 
-Run the Profile plugin add/reload/remove scenario:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload
-```
-
-Run the packaged same-process TUI code replacement scenario:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload-code
-```
+The `reload` and `reload-code` scenarios are retained only as investigation fixtures while the bundle's reload module is disabled. Do not treat them as current acceptance tests; run them only when explicitly resuming the reload design.
 
 Run the network-free, controlled-model scenario for running-turn input, immediate preview, and steer delivery:
 

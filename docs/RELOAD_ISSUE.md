@@ -4,7 +4,9 @@
 
 **设计问题已记录，当前暂停实现。尚未完成修复或最终验收。**
 
-当前工作树保留了调查期间针对 TUI/HMR 的实验性 WIP；这些改动不能视为最终方向，也不能视为已通过测试。恢复工作时必须先区分 reload 改动与同工作树中的其他并行功能。
+当前 bundle 已暂时关闭 reload：`cordis.patch.yml` 中的 `tui-reload` 行为 disabled，TUI 不注入 `tuiReload`，也不展示或处理 `/reload`。用户需要退出并重新启动 `dsh --profile tui` 才能载入 Profile 或代码变化。
+
+`src/reload.ts`、包导出、专项源码测试和历史场景仍作为调查 WIP 保留，便于后续恢复；这些内容不能视为当前运行时能力。恢复工作时必须先区分 reload 改动与同工作树中的其他并行功能。
 
 ## 原始目标
 

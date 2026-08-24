@@ -497,6 +497,38 @@ describe('composer chrome', () => {
     )
   })
 
+
+  it('shows active jobs inline and drops them before configured footer content', () => {
+    const values: Record<string, string> = {
+      model: 'deepseek-v4-flash',
+      effort: ' · max',
+      context: ' · ctx 0/1m',
+      permission: ' · workspace-write',
+    }
+    const footer = new ComposerFooterComponent(
+      [
+        { type: 'value', name: 'model' },
+        { type: 'value', name: 'effort' },
+        { type: 'value', name: 'context' },
+        { type: 'value', name: 'permission' },
+      ],
+      name => values[name],
+      palette,
+      () => 'jobs 2',
+    )
+    assert.equal(
+      footer.render(80)[0],
+      '  deepseek-v4-flash · max · ctx 0/1m · workspace-write · jobs 2',
+    )
+    const narrow = footer.render(56)[0]!
+    assert.equal(narrow, '  deepseek-v4-flash · max · ctx 0/1m · workspace-write')
+    assert.ok(!narrow.includes('jobs'))
+    assert.ok(visibleWidth(narrow) <= 56)
+
+    const hidden = new ComposerFooterComponent([], () => undefined, palette, () => undefined)
+    assert.deepEqual(hidden.render(40), ['  '])
+  })
+
   it('uses Flash/max for a new session and the last request route for history', () => {
     const fallback = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
     assert.deepEqual(resolveSessionModelSelection(undefined, fallback, 'max'), {

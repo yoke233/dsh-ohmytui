@@ -5,6 +5,7 @@
  * @module dsh-omp-tui
  */
 
+import { statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
@@ -25,14 +26,15 @@ import {
 import type { Agent, AgentHandle, AgentStatus, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { CombinedAutocompleteProvider, type AutocompleteItem, type SlashCommand } from '@earendil-works/pi-tui'
-import { createUserMessage, errorChain, type CallId, type LlmConfigurableProvider, type LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain, type CallId, type ContentBlock, type LlmConfigurableProvider, type LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill'
 // Type-only imports pull in the declaration merges that expose `ctx.commands`,
-// `ctx.tokenMeter`, `ctx.llm`, `ctx.userQuestions`, `ctx.approval`, `ctx.sessionQuery`,
+// `ctx.attachments`, `ctx.tokenMeter`, `ctx.llm`, `ctx.userQuestions`, `ctx.approval`, `ctx.sessionQuery`,
 // `ctx.agentDefaultModel`, `ctx.skills`, `ctx.sessionReferenceResolver`, and
 // `ctx.permissionPresets` on the cordis Context, plus the goal/compaction/skill
 // session-event extensions.
@@ -50,6 +52,7 @@ import { PERMISSION_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-permission-prese
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-compaction'
+import type {} from '@deepseek-ai/dsh-jobs'
 // Declaration merges: `ctx.agentPresets` and the `agent-preset/selected`
 // session event, plus the runtime preset resolver for resumed sessions.
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
@@ -63,9 +66,9 @@ import {
   type UiMode,
 } from './config.ts'
 import type { TuiStartup } from './startup.ts'
-import type {} from './reload.ts'
 import { parseTuiPromptTemplate } from './prompt.ts'
 import { createTranslator, type MessageKey, type Translator } from './i18n.ts'
+import { registerJobsCommand, summarizeActiveJobs } from './jobs.ts'
 import {
   FULL_ACCESS_REGISTRY_NAME,
   FULL_ACCESS_UI_NAME,
@@ -140,6 +143,14 @@ import {
 } from './components/provider-form.ts'
 import { contentText } from './components/content.ts'
 import { latestAssistantText, osc52ClipboardSequence } from './clipboard.ts'
+import {
+  ImagePasteDraft,
+  encodeImageSubmission,
+  isImagePasteShortcut,
+  pastedImageFilePath,
+  readClipboardImage,
+  readPastedImageFile,
+} from './image-paste.ts'
 import { displayInlineText, displayText } from './components/text.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
 import { hasConversationData, recordConversationPreset } from './session-lifecycle.ts'
@@ -245,7 +256,7 @@ async function readGitBranch(cwd: string): Promise<string | undefined> {
 
 /** The terminal mode's plugin entry: mounts the whole UI in its constructor. */
 export class Tui extends Service {
-  static inject = ['tuiStartup', 'tuiReload', 'agents', 'tuiPrompt', 'commands', 'tokenMeter', 'llm', 'userQuestions', 'approval', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
+  static inject = ['tuiStartup', 'agents', 'tuiPrompt', 'commands', 'attachments', 'jobs', 'tokenMeter', 'llm', 'userQuestions', 'approval', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
   static Config = TuiConfigSchema
 
   /** Mount 后由 TUI 赋值：读取当前前台 agent。 */
@@ -276,6 +287,7 @@ export class Tui extends Service {
 
     const resolved: ResolvedTuiConfig = resolveTuiConfig(config)
     const t: Translator = createTranslator(resolved.locale)
+    ctx.effect(() => registerJobsCommand(ctx, t))
     const truecolor = resolved.theme.truecolor || detectTruecolor()
     // Runtime theme state; `/theme` and `/settings` re-paint in place.
     const settings = ctx.settings
@@ -405,6 +417,8 @@ export class Tui extends Service {
     // The agent is published asynchronously on the resume path (persistence
     // load), so agent-dependent setup runs in mount() once it is live.
     let agent: Agent | undefined
+    let activeAgentGeneration = 0
+    let messageSubmissionTail: Promise<void> | undefined
     let gitBranch: string | undefined
     /** Running token usage for the active session; kept incrementally to avoid rescanning the whole log on every status update. */
     let tokenTotals = { inputTokens: 0, outputTokens: 0 }
@@ -443,9 +457,22 @@ export class Tui extends Service {
       frame: 'none',
       prompt: { first: '', continuation: '' },
     })
+    const imagePasteDraft = new ImagePasteDraft({
+      maxImages: ctx.attachments.imageLimits.maxImagesPerMessage,
+      maxBytes: ctx.attachments.imageLimits.maxMessageImageBytes,
+    })
+    let imagePasteBusy = false
+    let imagePasteDisposed = false
     let leftTemplate = parseTuiPromptTemplate(displayInlineText(persistedTheme?.leftPrompt ?? resolved.theme.leftPrompt))
     let rightTemplate = parseTuiPromptTemplate(displayInlineText(persistedTheme?.rightPrompt ?? resolved.theme.rightPrompt))
     const promptValue = (valueName: string): string | undefined => ctx.tuiPrompt.get(valueName)
+    const jobsFooterValue = (): string | undefined => {
+      if (agent === undefined) return undefined
+      const summary = summarizeActiveJobs(ctx.jobs.list(agent))
+      if (summary.count === 0) return undefined
+      const color = summary.stopping ? palette.warning : palette.accent
+      return color(`jobs ${summary.count}`)
+    }
     let statusLine = new StatusLineComponent(leftTemplate, promptValue, palette)
     const todoPanel = new TodoPanelComponent(palette)
     const subagentPanel = new SubagentPanelComponent(palette)
@@ -456,7 +483,7 @@ export class Tui extends Service {
     let commandHintText: string | undefined
     const commandHint = new CommandHintComponent(() => commandHintText, palette)
     const inputBorder = new InputBorderComponent(palette)
-    let footer = new ComposerFooterComponent(rightTemplate, promptValue, palette)
+    let footer = new ComposerFooterComponent(rightTemplate, promptValue, palette, jobsFooterValue)
     let noticeMounted = false
     let noticeTimer: NodeJS.Timeout | undefined
 
@@ -482,6 +509,10 @@ export class Tui extends Service {
     }
     rebuildChrome()
     terminal.setTitle(resolved.title)
+    ctx.effect(() => ctx.jobs.onJobsChanged((owner) => {
+      if (agent === undefined) return
+      if (owner === undefined || owner === agent) ui.requestRender()
+    }))
 
     // --- prompt values ----------------------------------------------------
     const cwdValue = ctx.tuiPrompt.register('cwd')
@@ -983,7 +1014,49 @@ export class Tui extends Service {
       appendNotice(showReasoning ? t('noticeReasoningShown') : t('noticeReasoningHidden'), 'info')
     }
 
-    const runCommand = async (line: string): Promise<void> => {
+    const attachPastedImage = async (load: () => ReturnType<typeof readClipboardImage>): Promise<void> => {
+      const target = agent
+      if (imagePasteBusy || target === undefined) return
+      const generation = activeAgentGeneration
+      imagePasteBusy = true
+      try {
+        const image = await load()
+        if (image === null) {
+          appendNotice(t('noticeImagePasteEmpty'), 'warning')
+          return
+        }
+        await ctx.attachments.validateImage(image)
+        if (imagePasteDisposed || agent !== target || activeAgentGeneration !== generation) return
+        const marker = imagePasteDraft.add(image)
+        editor.insertTextAtCursor(marker)
+        appendNotice(t('noticeImagePasteAttached', { marker: marker.trim() }), 'info')
+      } catch (error: unknown) {
+        appendNotice(t('noticeImagePasteFailed', { error: errorChain(error) }), 'warning')
+      } finally {
+        imagePasteBusy = false
+      }
+    }
+
+    const pasteClipboardImage = async (): Promise<void> => {
+      await attachPastedImage(async () => await readClipboardImage({
+        maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+        mediaTypes: ctx.attachments.imageLimits.mediaTypes,
+      }))
+    }
+
+    const pasteImageFile = async (filePath: string): Promise<void> => {
+      await attachPastedImage(async () => await readPastedImageFile(
+        filePath,
+        ctx.attachments.imageLimits.maxImageBytes,
+        ctx.attachments.imageLimits.mediaTypes,
+      ))
+    }
+
+    const runCommand = async (
+      line: string,
+      images: readonly EncodedImageAttachment[] = [],
+      onImageRejected?: () => void,
+    ): Promise<void> => {
       const current = agent
       if (current === undefined) return
       if (line === '/palette' || line.startsWith('/palette ')) {
@@ -1198,36 +1271,6 @@ export class Tui extends Service {
         } else {
           terminal.write(osc52ClipboardSequence(text))
           appendNotice(t('noticeCopySuccess'), 'info')
-        }
-        return
-      }
-      if (line === '/reload') {
-        if (current.status === 'running') {
-          appendNotice(t('noticeReloadBusy'), 'warning')
-          return
-        }
-        appendNotice(t('noticeReloading'), 'info')
-        try {
-          const result = await ctx.tuiReload.reload()
-          if (result.changed) {
-            handles.refreshCommands?.()
-            contextUsageCache.measuredAt = 0
-            rebuildChrome()
-            setStatus(current.status)
-          }
-          if (!result.changed) {
-            appendNotice(t('noticeReloadUnchanged'), 'info')
-          } else if (result.addedBundles.length === 0 && result.removedBundles.length === 0) {
-            appendNotice(t('noticeReloadedConfig'), 'info')
-          } else {
-            appendNotice(t('noticeReloaded', {
-              added: result.addedBundles.length,
-              removed: result.removedBundles.length,
-            }), 'info')
-          }
-          await ctx.tuiReload.reloadTuiCode()
-        } catch (error: unknown) {
-          appendNotice(t('noticeReloadFailed', { error: errorChain(error) }), 'error')
         }
         return
       }
@@ -2017,7 +2060,7 @@ export class Tui extends Service {
                   } else {
                     rightPrompt = next
                     rightTemplate = parseTuiPromptTemplate(displayInlineText(next))
-                    footer = new ComposerFooterComponent(rightTemplate, promptValue, palette)
+                    footer = new ComposerFooterComponent(rightTemplate, promptValue, palette, jobsFooterValue)
                   }
                   await tuiSettings.update({ leftPrompt, rightPrompt })
                   rebuildChrome()
@@ -2633,6 +2676,7 @@ export class Tui extends Service {
           `${palette.dim('Ctrl+C')}  ${t('helpCtrlC')}`,
           `${palette.dim('Ctrl+O')}  ${t('helpCtrlO')}`,
           `${palette.dim('Ctrl+R')}  ${t('helpCtrlR')}`,
+          `${palette.dim(process.platform === 'win32' ? 'Alt+V' : 'Ctrl+V')}  ${t('helpImagePaste')}`,
           '',
           palette.bold(palette.accent(t('helpCommands'))),
           `/palette — ${t('helpPalette')}`,
@@ -2642,7 +2686,6 @@ export class Tui extends Service {
           `/new — ${t('helpNew')}`,
           `/resume — ${t('helpResume')}`,
           `/copy — ${t('helpCopy')}`,
-          `/reload — ${t('helpReload')}`,
           `/details — ${t('helpDetails')}`,
           `/skills — ${t('helpSkills')}`,
           `/skill:<name> ${t('skillArgumentHint')} — ${t('helpSkillInvoke')}`,
@@ -2656,34 +2699,29 @@ export class Tui extends Service {
         ui.requestRender()
         return
       }
-      // dsh rc8 added an `images` parameter to commands.execute. Pass an empty
-      // image batch so the same source compiles and runs against rc6 and rc8.
-      const executeCommand = ctx.commands.execute as unknown as (
-        agent: Agent,
-        line: string,
-        images: readonly unknown[],
-        signal: AbortSignal,
-      ) => ReturnType<typeof ctx.commands.execute>
-      // `execute` reads registry state through `this` (for example `this.view`).
-      // Keep the Cordis command service as the receiver after narrowing its type.
-      const execution = await executeCommand.call(
-        ctx.commands,
+      const execution = await ctx.commands.execute(
         current,
         line,
-        [],
+        images,
         new AbortController().signal,
       )
       if (execution === undefined) {
+        onImageRejected?.()
         appendNotice(t('noticeUnknownCommand', {
           name: line.slice(1, line.indexOf(' ') === -1 ? undefined : line.indexOf(' ')),
         }), 'warning')
         return
       }
       const result = execution.result
+      // Command handlers use an error result to tell capable composers to
+      // retain rejected attachment input (including sub-command grammar misses).
+      if (result.kind === 'error') onImageRejected?.()
       const resultText = result.text?.replaceAll(FULL_ACCESS_REGISTRY_NAME, FULL_ACCESS_UI_NAME)
       const isWechatCommand = line.startsWith('/wechat-')
-      if (isWechatCommand && resultText !== undefined && resultText !== '') {
-        // 微信桥命令结果与二维码/日志一样持久化到 transcript，避免自动消失。
+      const isJobsCommand = line === '/jobs'
+      if ((isWechatCommand || isJobsCommand) && resultText !== undefined && resultText !== '') {
+        // Multiline operational results stay in the transcript instead of being
+        // collapsed into the five-second single-line notice slot.
         const color = result.kind === 'error' ? palette.error : palette.text
         chat.addChild(new StaticCardComponent(
           displayText(resultText).split('\n').map(row => color(row)),
@@ -2710,55 +2748,125 @@ export class Tui extends Service {
       }
     }
 
+    const enqueueUserMessage = (operation: () => Promise<void> | void): void => {
+      const queued = (messageSubmissionTail ?? Promise.resolve()).then(operation)
+      const settled = queued.catch((error: unknown) => {
+        if (!imagePasteDisposed) {
+          appendNotice(t('noticeImageSubmitFailed', { error: errorChain(error) }), 'error')
+        }
+      })
+      messageSubmissionTail = settled
+      void settled.then(() => {
+        if (messageSubmissionTail === settled) messageSubmissionTail = undefined
+      })
+    }
+
     editor.onSubmit = (text: string): void => {
       const current = agent
       if (current === undefined) return
       const trimmed = text.trim()
       if (trimmed === '') return
       editor.addToHistory(text)
+
+      const generation = activeAgentGeneration
+      const ownsEditor = (): boolean => !imagePasteDisposed
+        && agent === current
+        && activeAgentGeneration === generation
+      const submission = imagePasteDraft.take(text)
+      const restoreSubmission = (): void => {
+        if (!ownsEditor() || editor.getText() !== '' || !imagePasteDraft.restore(submission)) return
+        editor.setText(text)
+      }
+
       if (trimmed.startsWith('/')) {
-        void runCommand(trimmed)
+        const commandName = /^\/([^\s]+)/u.exec(trimmed)?.[1] ?? ''
+        const command = commandName === '' ? undefined : ctx.commands.find(current, commandName)
+        if (submission.images.length > 0 && command?.input?.images !== true) {
+          restoreSubmission()
+          appendNotice(t('noticeImageCommandUnsupported', { name: commandName }), 'warning')
+          return
+        }
+        void runCommand(trimmed, encodeImageSubmission(submission), restoreSubmission).catch((error: unknown) => {
+          restoreSubmission()
+          if (ownsEditor()) {
+            appendNotice(t('noticeImageSubmitFailed', { error: errorChain(error) }), 'error')
+          }
+        })
         return
       }
+
       const refreshTitle = (): void => {
         const sessionTitle = ctx.get('sessionTitle')
         if (sessionTitle !== undefined && foldSessionTitle(current.session.events) === undefined) {
           void sessionTitle.refresh(current.session).catch(() => undefined)
         }
       }
-      // `@[label](dsh-session:…)` mentions lift another session's surface
-      // into this one: prepare attaches the snapshot and injects the
-      // additional context without a model turn.
       const parsed = parseSessionReferenceText(text)
-      if (parsed.references.length > 0) {
-        void (async () => {
+      const deliver = (content: ContentBlock[], additionalContext?: Awaited<ReturnType<typeof ctx.sessionReferenceResolver.prepare>>['additionalContext']): void => {
+        if (!ownsEditor()) return
+        if (additionalContext !== undefined) current.inject(additionalContext)
+        recordActivePreset(current)
+        current.steer(createUserMessage({ content, source: { kind: 'user' } }))
+        refreshTitle()
+      }
+
+      // Preserve the synchronous path unless an earlier image/reference submit
+      // is still committing; later messages then queue behind it in editor order.
+      if (submission.images.length === 0 && parsed.references.length === 0) {
+        const content: ContentBlock[] = [{ type: 'text', text }]
+        if (messageSubmissionTail === undefined) deliver(content)
+        else enqueueUserMessage(() => { deliver(content) })
+        return
+      }
+
+      enqueueUserMessage(async () => {
+        if (!ownsEditor()) return
+        let content: ContentBlock[] = [{ type: 'text', text: parsed.text }]
+        let additionalContext: Awaited<ReturnType<typeof ctx.sessionReferenceResolver.prepare>>['additionalContext']
+        if (parsed.references.length > 0) {
           try {
             const prepared = await ctx.sessionReferenceResolver.prepare(
               current,
-              [{ type: 'text', text: parsed.text }],
+              content,
               parsed.references,
             )
-            // Inject first (queues context without waking), then steer: the
-            // waking driver claims both at the nearest pre-step, so the model
-            // sees the referenced snapshot with this input.
-            if (prepared.additionalContext !== undefined) {
-              current.inject(prepared.additionalContext)
-            }
-            recordActivePreset(current)
-            current.steer(createUserMessage({ content: prepared.content, source: { kind: 'user' } }))
-            refreshTitle()
+            if (!ownsEditor()) return
+            content = [...prepared.content]
+            additionalContext = prepared.additionalContext
           } catch (error: unknown) {
-            appendNotice(t('noticeReferenceFailed', { error: errorChain(error) }), 'error')
+            if (ownsEditor()) {
+              restoreSubmission()
+              appendNotice(t('noticeReferenceFailed', { error: errorChain(error) }), 'error')
+            }
+            return
           }
-        })()
-        return
-      }
-      recordActivePreset(current)
-      current.steer(createUserMessage({
-        content: [{ type: 'text', text }],
-        source: { kind: 'user' },
-      }))
-      refreshTitle()
+        }
+
+        if (submission.images.length > 0) {
+          try {
+            const refs = await ctx.attachments.saveImages(
+              submission.images.map(image => image.input),
+            )
+            if (!ownsEditor()) return
+            content.push(...refs.map(attachment => ({ type: 'image' as const, attachment })))
+          } catch (error: unknown) {
+            if (ownsEditor()) {
+              restoreSubmission()
+              appendNotice(t('noticeImageSubmitFailed', { error: errorChain(error) }), 'error')
+            }
+            return
+          }
+        }
+
+        try {
+          deliver(content, additionalContext)
+        } catch (error: unknown) {
+          if (ownsEditor()) {
+            restoreSubmission()
+            appendNotice(t('noticeImageSubmitFailed', { error: errorChain(error) }), 'error')
+          }
+        }
+      })
     }
 
     // First Ctrl+C interrupts the running turn (or hints at the exit path
@@ -2769,6 +2877,21 @@ export class Tui extends Service {
     const EXIT_ARM_WINDOW_MS = 2000
 
     const offKeys = ui.addInputListener((data) => {
+      const pastedFile = editor.focused ? pastedImageFilePath(data) : null
+      if (pastedFile !== null) {
+        try {
+          if (statSync(pastedFile).isFile()) {
+            void pasteImageFile(pastedFile)
+            return { consume: true }
+          }
+        } catch {
+          // Let the editor retain a pasted path that no longer resolves.
+        }
+      }
+      if (editor.focused && isImagePasteShortcut(data)) {
+        void pasteClipboardImage()
+        return { consume: true }
+      }
       if (matchesKey(data, 'ctrl+c')) {
         if (exitArmed) {
           clearTimeout(exitArmTimer)
@@ -2933,7 +3056,6 @@ export class Tui extends Service {
         },
         { name: 'new', description: t('cmdNew') },
         { name: 'copy', description: t('cmdCopy') },
-        { name: 'reload', description: t('cmdReload') },
         {
           name: 'resume',
           description: t('cmdResume'),
@@ -3200,6 +3322,10 @@ export class Tui extends Service {
         selectionRef.assembled = undefined
         uiMode = modeForSession(next.session, resolveDefaultMode())
         offModelSelection = installModelSelection(next.ctx, selectionRef)
+        const editorText = editor.getText()
+        const textWithoutImages = imagePasteDraft.discardFrom(editorText)
+        if (textWithoutImages !== editorText) editor.setText(textWithoutImages)
+        activeAgentGeneration += 1
         agent = next
         activeHandle = handle
         setActiveAgent(next)
@@ -3403,6 +3529,8 @@ export class Tui extends Service {
 
     ctx.effect(() => () => {
       setTuiForegroundControl(undefined)
+      imagePasteDisposed = true
+      imagePasteDraft.clear()
       offKeys()
       offEvent?.()
       offStatus?.()
