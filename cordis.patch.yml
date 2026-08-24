@@ -137,3 +137,23 @@
 
     - id: tool-ask-user
       name: '@deepseek-ai/dsh-tool-ask-user'
+
+    # Claude Code hooks bridge, mounted twice for a layered config: a
+    # project-local row and a user-level row (each configPath is process-level
+    # and read once; the plugin is not a Service, so multiple rows compose).
+    # Both layers' hooks run on the same interception seams
+    # (PreToolUse/PostToolUse/UserPromptSubmit/Stop/…) and a deny from either
+    # layer wins on the waterfall. A missing or malformed file is contained —
+    # the bridge warns and registers nothing. `ask` decisions route through
+    # ctx.approval into the TUI approval dialog.
+    # OMDSH_HOOKS_CONFIG overrides the project layer (e.g. point it at a
+    # Claude Code settings.json whose `hooks` key should run on dsh).
+    - id: hooks-claude-code
+      name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: !!js process.env.OMDSH_HOOKS_CONFIG ?? './.claude/hooks.json'
+
+    - id: hooks-claude-code-user
+      name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: !!js dshHomePath('hooks.json')

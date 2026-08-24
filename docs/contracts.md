@@ -268,6 +268,31 @@ class ApprovalService extends Service {
 - 审计事件为 `approval/asked` 与 `approval/decided`（同一 request id，log-only）；策略覆盖记录为 `approval/policy`。`request()` 只能在 open turn 内调用，以保证审计事件对完整落在回合边界内。
 - TUI 在 `approval/request` 上注册 waterfall answerer，只认领当前前台 agent 的请求，展示 toolName/reason，并允许“仅本次授权”或“拒绝”；其他 agent 调用 `next()`。
 
+### 4.3 hooks 桥 — `@deepseek-ai/dsh-hooks-claude-code` + `@deepseek-ai/dsh-hook-protocol`
+
+bundle 插入两行桥（插件非 Service，可多实例）：`hooks-claude-code`（项目级
+`./.claude/hooks.json`，`OMDSH_HOOKS_CONFIG` 可覆盖）与 `hooks-claude-code-user`
+（用户级 `dshHomePath('hooks.json')` = `~/.dsh/hooks.json`）。每行 configPath
+进程级、加载时读一次；两层 hook 同跑各拦截缝（`tools/pre-execute`、
+`tools/post-execute`、`agent/pre-step`、`agent/turn-stopping`、
+`agent/session-start`、`subagent/*`），waterfall 上任一层 deny 即阻断。
+`ask` 决策落到 `ctx.approval` → TUI 现有 `approval/request` answerer。
+
+TUI 消费的 log-only session 事件（`dsh-hook-protocol/lib/types/types.d.ts:8-39`
+声明合并，必须 `import type {} from '@deepseek-ai/dsh-hook-protocol'`）：
+
+```ts
+'hook/invoked': { turn: number; point: string; dialect: 'claude-code' | 'codex'; matcher?: string; handlerId: string }
+'hook/result':  { turn: number; point: string; handlerId: string; decision: string; exitCode?: number; stderrSummary?: string; durationMs: number }
+```
+
+- invoked/result 按 `handlerId` 配对且在日志中相邻（串行执行保证）；TUI 用
+  Map 暂存 invoked 取 matcher，在 result 处渲染 Hook 卡片。
+- `decision` 取值：解析出的 `allow|deny|ask|approve|block`、`continue:false` 记为
+  `stop`、无显式决策记为 `pass`。TUI 对 `deny|block|stop` 弹警告通知。
+- 限制：`updatedInput` 不生效；`allow` 不预授权；Stop 无连续阻断上限；仅
+  command hook 运行。详见 `docs/hooks.md` 与桥的 README。
+
 ---
 
 ## 5. LLM 词汇 — `@deepseek-ai/dsh-llm`

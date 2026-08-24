@@ -144,6 +144,8 @@ export type Messages = {
   noticeTurnEnded: string
   noticeTurnFailed: string
   noticeToolCards: string
+  noticeHookBlocked: string
+  noticeSkipPermissionsFailed: string
   noticeReasoningShown: string
   noticeReasoningHidden: string
   noticeModelFailed: string
@@ -440,6 +442,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeTurnEnded: '回合结束：{reason}。',
     noticeTurnFailed: '回合失败（{code}）：{error}',
     noticeToolCards: '工具卡：{visibility}。',
+    noticeHookBlocked: 'hook 拦截（{point}）：{decision}。',
+    noticeSkipPermissionsFailed: '--yolo 应用失败：{error}',
     noticeReasoningShown: '思考块已显示。',
     noticeReasoningHidden: '思考块已隐藏。',
     noticeModelFailed: '模型选择失败：{error}',
@@ -732,6 +736,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeTurnEnded: 'Turn ended: {reason}.',
     noticeTurnFailed: 'Turn failed ({code}): {error}',
     noticeToolCards: 'Tool cards {visibility}.',
+    noticeHookBlocked: 'Hook blocked ({point}): {decision}.',
+    noticeSkipPermissionsFailed: 'Failed to apply --yolo: {error}',
     noticeReasoningShown: 'Reasoning blocks shown.',
     noticeReasoningHidden: 'Reasoning blocks hidden.',
     noticeModelFailed: 'Model selection failed: {error}',

@@ -22,34 +22,41 @@ export interface TuiStartupValues {
   readonly sessionId: SessionId | undefined
   /** Persisted-session identity: `--resume <id>`. */
   readonly resumeSessionId: SessionId | undefined
+  /** `--yolo`: pin every foreground session to the unrestricted preset. */
+  readonly skipPermissions: boolean
 }
 
-/** Service provided by the startup row; both fields are mutually exclusive. */
+/** Service provided by the startup row; the session fields are mutually exclusive. */
 export class TuiStartup extends Service {
   static inject = ['cmdlineArgs']
 
   readonly sessionId: SessionId | undefined
   readonly resumeSessionId: SessionId | undefined
+  readonly skipPermissions: boolean
 
   constructor(ctx: Context) {
     super(ctx, 'tuiStartup')
     let sessionId: SessionId | undefined
     let resumeSessionId: SessionId | undefined
+    let skipPermissions = false
     const program = new Command()
     program
       .name('dsh tui')
       .description('omp-styled interactive terminal front door for DeepSeek Harness')
       .option('--resume <sessionId>', 'resume a persisted session')
       .option('--session <sessionId>', 'name a fresh session explicitly')
-      .action((options: { resume?: string; session?: string }) => {
+      .option('--yolo', 'start with the unrestricted permission preset (no sandbox, no approval prompts)')
+      .action((options: { resume?: string; session?: string; yolo?: boolean }) => {
         if (options.resume !== undefined && options.session !== undefined) {
           program.error('--resume and --session are mutually exclusive')
           return
         }
         if (options.resume !== undefined) resumeSessionId = SessionId(options.resume)
         if (options.session !== undefined) sessionId = SessionId(options.session)
+        skipPermissions = options.yolo === true
       })
     parseCmdline(ctx, program)
+    this.skipPermissions = skipPermissions
     // A bare `dsh --profile tui` mints a fresh identity so the TUI row always
     // knows which agent to mount, instead of racing the agent-loop's own
     // `${id}-session-<uuid>` fallback. With `--resume`, only resumeSessionId is

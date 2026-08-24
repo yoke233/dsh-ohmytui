@@ -680,9 +680,10 @@ export class ContextCardComponent implements Component {
     text: string,
     private readonly maxOutputLines: number,
     private readonly palette: Palette,
+    heading = 'Injected context',
   ) {
     this.fullLines = displayText(text).split('\n')
-    this.title = `${palette.context('Injected context')} ${palette.dim(`· ${displayText(label)}`)}`
+    this.title = `${palette.context(heading)} ${palette.dim(`· ${displayText(label)}`)}`
   }
 
   setVisibility(visibility: ToolCardVisibility): void {

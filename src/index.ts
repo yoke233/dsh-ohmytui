@@ -53,6 +53,9 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-jobs'
+// Declaration merge: the `hook/invoked` / `hook/result` session events written
+// by the dsh-hooks-claude-code bridge (via dsh-hook-protocol).
+import type {} from '@deepseek-ai/dsh-hook-protocol'
 // Declaration merges: `ctx.agentPresets` and the `agent-preset/selected`
 // session event, plus the runtime preset resolver for resumed sessions.
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
@@ -580,6 +583,18 @@ export class Tui extends Service {
       }
     }
 
+    // `--yolo` pins every foreground session to the unrestricted preset
+    // through the same write path as `/permission full-access`; re-selecting
+    // the effective preset appends nothing.
+    const applyStartupPermission = (target: Agent): void => {
+      if (!startup.skipPermissions) return
+      try {
+        ctx.permissionPresets.set(target.session, FULL_ACCESS_REGISTRY_NAME)
+      } catch (error: unknown) {
+        appendNotice(t('noticeSkipPermissionsFailed', { error: errorChain(error) }), 'error')
+      }
+    }
+
     // 微信桥输出不直接写 stderr：日志/二维码作为持久化文本进入 transcript，
     // 与 `/help` 的静态卡片一样保留在终端中，且不会越过差分渲染器覆盖输入框。
     const subscribeWechatOutput = (): void => {
@@ -780,6 +795,8 @@ export class Tui extends Service {
     const toolCards = new Map<CallId, ToolCardComponent>()
     const allToolCards = new Set<ToolCardComponent>()
     const contextCards = new Set<ContextCardComponent>()
+    /** `hook/invoked` payloads awaiting their paired `hook/result` (by handlerId). */
+    const hookInvocations = new Map<string, { point: string; matcher?: string }>()
     let toolsVisibility: ToolCardVisibility = 'collapsed'
     let live = false
     let header: HeaderComponent | undefined
@@ -851,6 +868,42 @@ export class Tui extends Service {
             todoPanel.setGoal({ objective: event.data.goal.objective, phase: event.data.goal.phase })
           }
           break
+        case 'hook/invoked':
+          hookInvocations.set(event.data.handlerId, event.data)
+          break
+        case 'hook/result': {
+          const invoked = hookInvocations.get(event.data.handlerId)
+          hookInvocations.delete(event.data.handlerId)
+          const blocked = event.data.decision === 'deny'
+            || event.data.decision === 'block'
+            || event.data.decision === 'stop'
+          // An uneventful pass-through (no blocking decision, clean exit, no
+          // stderr) stays in the durable log but adds nothing to the screen.
+          const notable = blocked
+            || event.data.decision === 'ask'
+            || (event.data.exitCode !== undefined && event.data.exitCode !== 0)
+            || event.data.stderrSummary !== undefined
+          if (!notable) break
+          const outcome = `${event.data.decision}`
+            + (event.data.exitCode === undefined ? '' : ` · exit ${event.data.exitCode}`)
+            + ` · ${Math.round(event.data.durationMs)}ms`
+          const detail = [
+            outcome,
+            ...invoked?.matcher === undefined ? [] : [`matcher: ${invoked.matcher}`],
+            ...event.data.stderrSummary === undefined ? [] : event.data.stderrSummary.split('\n'),
+          ].join('\n')
+          const card = new ContextCardComponent(event.data.point, detail, maxToolOutputLines, palette, 'Hook')
+          card.setVisibility(toolsVisibility)
+          contextCards.add(card)
+          chat.addChild(card)
+          if (live && notify && blocked) {
+            appendNotice(t('noticeHookBlocked', {
+              point: event.data.point,
+              decision: event.data.decision,
+            }), 'warning')
+          }
+          break
+        }
         case 'compaction/start':
           isCompacting = true
           refreshCompacting()
@@ -911,6 +964,7 @@ export class Tui extends Service {
       toolCards.clear()
       allToolCards.clear()
       contextCards.clear()
+      hookInvocations.clear()
       chat.followLatest = anchor === 'bottom'
       chat.lineOffset = 0
       chat.clear()
@@ -3372,6 +3426,7 @@ export class Tui extends Service {
         agent = next
         activeHandle = handle
         setActiveAgent(next)
+        applyStartupPermission(next)
         handles.refreshCommands?.()
         tokenTotals = { inputTokens: 0, outputTokens: 0 }
         contextUsageCache.measuredAt = 0
@@ -3519,6 +3574,7 @@ export class Tui extends Service {
       handles.selectionRef = selectionRef
       refreshContextEstimate(liveAgent, initialSelection)
 
+      applyStartupPermission(liveAgent)
       // Replay the durable log first (constructor seeds never publish), then
       // go live so turn-end notices only surface for fresh work.
       rebuildTranscript()

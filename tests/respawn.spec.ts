@@ -66,6 +66,13 @@ describe('nextGenerationArgs', () => {
     )
   })
 
+  it('keeps --yolo across generations', () => {
+    assert.deepEqual(
+      nextGenerationArgs(['--yolo', '--session', 'old-id'], 'new-id'),
+      ['--yolo', '--resume', 'new-id'],
+    )
+  })
+
   it('does not consume a value for a trailing identity flag', () => {
     assert.deepEqual(nextGenerationArgs(['--flag', '--resume'], 'new-id'), ['--flag', '--resume', 'new-id'])
   })

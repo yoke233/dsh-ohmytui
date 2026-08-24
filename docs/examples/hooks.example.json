@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=JSON.parse(s);if(/rm -rf|Remove-Item -Recurse -Force [A-Z]:\\\\\\\\/i.test(JSON.stringify(p.tool_input))){console.error('dangerous recursive delete blocked by hooks.json');process.exit(2)}})\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'UserPromptSubmit',additionalContext:'Reminder from hooks.json: keep answers brief.'}}))\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
