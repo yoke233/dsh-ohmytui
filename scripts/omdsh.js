@@ -219,6 +219,19 @@ function readHandoffArgs() {
 /** 运行一代交互式 dsh，等待其退出并回报退出方式。 */
 function runGeneration(innerArgs) {
   return new Promise((settle) => {
+    // /reload 的第一时间反馈：TUI 在请求退出前先写 handoff 文件，而旧进程的
+    // 优雅析构（最长 10s 看门狗）会推迟退出码路径。监视 handoff 出现即播报，
+    // 让用户在析构空窗期就知道 reload 已被受理，而不是等子进程真正退出。
+    let announced = false
+    fs.watchFile(handoffPath, { interval: 300 }, (curr) => {
+      if (announced || curr.mtimeMs === 0) return
+      announced = true
+      process.stderr.write('\nomdsh: 收到重载请求，正在关闭当前进程…\n')
+    })
+    const finish = (outcome) => {
+      fs.unwatchFile(handoffPath)
+      settle(outcome)
+    }
     const child = run(dsh, ['--profile', PROFILE, ...innerArgs], {
       OMDSH_RELOAD_HANDOFF: handoffPath,
     })
@@ -226,13 +239,13 @@ function runGeneration(innerArgs) {
       if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
         process.stderr.write('omdsh: 未在 PATH 中找到官方 dsh。\n')
         process.stderr.write('omdsh: 请先安装 @deepseek-ai/dsh（例如: npm install -g @deepseek-ai/dsh）。\n')
-        settle({ failedCode: 127 })
+        finish({ failedCode: 127 })
         return
       }
       process.stderr.write(`omdsh: 启动 dsh 失败: ${String(err)}\n`)
-      settle({ failedCode: 1 })
+      finish({ failedCode: 1 })
     })
-    child.on('exit', (code, signal) => settle({ code, signal }))
+    child.on('exit', (code, signal) => finish({ code, signal }))
   })
 }
 
@@ -251,7 +264,7 @@ for (;;) {
   if (result.code === RELOAD_EXIT_CODE) {
     const nextArgs = readHandoffArgs()
     if (nextArgs !== undefined) {
-      process.stderr.write('omdsh: 收到重载请求，正在启动新一代进程并续接会话…\n')
+      process.stderr.write('omdsh: 正在启动新一代进程并续接会话…\n')
       // 重启前重跑引导检查：profile 内刚更新的插件版本由新一代进程载入。
       ensureProfile()
       innerArgs = nextArgs
