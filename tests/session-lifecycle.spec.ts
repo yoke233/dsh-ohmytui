@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { hasConversationData, recordConversationPreset } from '../src/session-lifecycle.ts'
+import { foldSessionView, hasConversationData, recordConversationPreset } from '../src/session-lifecycle.ts'
 
 function blankSession(idValue: string, agentPreset?: string): Session {
   const id = SessionId(idValue)
@@ -24,6 +24,44 @@ describe('session lifecycle', () => {
     assert.equal(hasConversationData(session.events), false)
 
     assert.equal(hasConversationData([{ type: 'user/message' } as SessionEvent]), true)
+  })
+
+  it('derives session UI state independently from the transcript window', () => {
+    const events = [
+      {
+        type: 'todo/write',
+        data: { todos: [{ content: 'old session task', status: 'in_progress' }] },
+      },
+      {
+        type: 'goal/change',
+        data: { operation: 'create', goal: { objective: 'old goal', phase: 'active' } },
+      },
+      {
+        type: 'assistant/message',
+        data: { usage: { inputTokens: 12, outputTokens: 5 } },
+      },
+      {
+        type: 'assistant/message',
+        data: { usage: { inputTokens: 7, outputTokens: 3 } },
+      },
+      {
+        type: 'subagent/descriptor',
+        data: { label: 'research', provider: 'task', mode: 'continuable' },
+      },
+    ] as SessionEvent[]
+
+    assert.deepEqual(foldSessionView(events), {
+      todos: [{ content: 'old session task', status: 'in_progress' }],
+      goal: { objective: 'old goal', phase: 'active' },
+      tokenTotals: { inputTokens: 19, outputTokens: 8 },
+      subagents: [{ label: 'research', provider: 'task', mode: 'continuable' }],
+    })
+    assert.deepEqual(foldSessionView([]), {
+      todos: [],
+      goal: undefined,
+      tokenTotals: { inputTokens: 0, outputTokens: 0 },
+      subagents: [],
+    })
   })
 
   it('does not append when the creation header already records the preset', () => {

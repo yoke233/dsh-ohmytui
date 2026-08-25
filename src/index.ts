@@ -176,7 +176,7 @@ import { displayInlineText, displayText } from './components/text.ts'
 import { createOrcaStatusReporter } from './orca-status.ts'
 import { WorkingWordRotation, formatWorkingElapsed, workingActivityText } from './working-words.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
-import { hasConversationData, recordConversationPreset } from './session-lifecycle.ts'
+import { foldSessionView, hasConversationData, recordConversationPreset, sessionSubagent } from './session-lifecycle.ts'
 import type { BridgeConfig, WechatBridge } from './wechat/index.ts'
 import { setActiveAgent } from './wechat/dsh/session.ts'
 import { setTuiForegroundControl } from './wechat/dsh/tui-control.ts'
@@ -823,7 +823,12 @@ export class Tui extends Service {
     const immediateUserMessages = new Map<string, Component>()
     /** Invalidates chunked rebuilds that are superseded by a newer window. */
     let transcriptBuildGeneration = 0
-    const renderEvent = (event: SessionEvent, syncStatus = true, notify = true): void => {
+    const renderEvent = (
+      event: SessionEvent,
+      syncStatus = true,
+      notify = true,
+      updateSessionView = true,
+    ): void => {
       switch (event.type) {
         case 'user/message': {
           if (pendingInputPanel.remove(event.data.id)) refreshPendingInput()
@@ -853,7 +858,7 @@ export class Tui extends Service {
           break
         case 'assistant/message':
           assistantStream.settle(event.data.message.content)
-          if (event.data.usage !== undefined) {
+          if (updateSessionView && event.data.usage !== undefined) {
             tokenTotals.inputTokens += event.data.usage.inputTokens
             tokenTotals.outputTokens += event.data.usage.outputTokens
           }
@@ -880,13 +885,15 @@ export class Tui extends Service {
           break
         }
         case 'todo/write':
-          todoPanel.setTodos(event.data.todos)
+          if (updateSessionView) todoPanel.setTodos(event.data.todos)
           break
         case 'goal/change':
-          if (event.data.operation === 'clear') {
-            todoPanel.setGoal(undefined)
-          } else {
-            todoPanel.setGoal({ objective: event.data.goal.objective, phase: event.data.goal.phase })
+          if (updateSessionView) {
+            if (event.data.operation === 'clear') {
+              todoPanel.setGoal(undefined)
+            } else {
+              todoPanel.setGoal({ objective: event.data.goal.objective, phase: event.data.goal.phase })
+            }
           }
           break
         case 'hook/invoked':
@@ -927,10 +934,13 @@ export class Tui extends Service {
           break
         }
         case 'compaction/start':
-          isCompacting = true
-          refreshCompacting()
+          if (updateSessionView) {
+            isCompacting = true
+            refreshCompacting()
+          }
           break
         case 'compaction/end':
+          if (!updateSessionView) break
           isCompacting = false
           refreshCompacting()
           // Force token counts to re-measure: the compressed history is
@@ -970,9 +980,9 @@ export class Tui extends Service {
         default:
           break
       }
-      if ((event as { type: string }).type === 'subagent/descriptor') {
-        const data = (event as { data: { label?: string; provider?: string; mode?: 'one-shot' | 'continuable' } }).data
-        subagentPanel.add({ label: data.label, provider: data.provider ?? 'subagent', mode: data.mode ?? 'one-shot' })
+      if (updateSessionView) {
+        const descriptor = sessionSubagent(event)
+        if (descriptor !== undefined) subagentPanel.add(descriptor)
       }
       if (syncStatus) updateStatusValues()
     }
@@ -1005,7 +1015,7 @@ export class Tui extends Service {
         if (agent === undefined || agent.session.events !== events) return
         const end = Math.min(index + chunkSize, events.length)
         for (; index < end; index++) {
-          renderEvent(events[index]!, false, false)
+          renderEvent(events[index]!, false, false, false)
         }
         if (index < events.length) {
           setImmediate(renderChunk)
@@ -1019,15 +1029,19 @@ export class Tui extends Service {
     }
 
     const rebuildTranscript = (): void => {
-      subagentPanel.clear()
-      tokenTotals = { inputTokens: 0, outputTokens: 0 }
-      contextUsageCache.measuredAt = 0
       const events = agent!.session.events
+      const view = foldSessionView(events)
+      todoPanel.setTodos(view.todos)
+      todoPanel.setGoal(view.goal)
+      tokenTotals = { ...view.tokenTotals }
+      subagentPanel.clear()
+      for (const descriptor of view.subagents) subagentPanel.add(descriptor)
+      contextUsageCache.measuredAt = 0
       // Re-derive persistent compacting flag when rebuilding a truncated window.
       isCompacting = false
-      for (const ev of events) {
-        if (ev.type === 'compaction/start') isCompacting = true
-        else if (ev.type === 'compaction/end') isCompacting = false
+      for (const event of events) {
+        if (event.type === 'compaction/start') isCompacting = true
+        else if (event.type === 'compaction/end') isCompacting = false
       }
       refreshCompacting()
       transcriptStart = recentTranscriptStart(events.length)
@@ -3555,10 +3569,12 @@ export class Tui extends Service {
         }
       }
 
-      const activateAgent = (next: Agent, handle: AgentHandle): void => {
+      const activateAgent = (next: Agent, handle: AgentHandle | undefined): void => {
         const previousHandle = activeHandle
         offEvent?.()
         offStatus?.()
+        // A foreground switch starts a new activity clock even when both agents are running.
+        stopSpinner()
         offInboxInserted?.()
         offInboxDiscarded?.()
         offModelSelection?.()
@@ -3664,6 +3680,13 @@ export class Tui extends Service {
           }
         } catch (error: unknown) {
           appendNotice(t('noticeSessionListFailed', { error: errorChain(error) }), 'error')
+          return
+        }
+        const existing = ctx.agents.get(targetId)
+        if (existing !== undefined) {
+          appendNotice(t('noticeResuming'), 'info')
+          activateAgent(existing, undefined)
+          appendNotice(t('noticeSessionResumed', { id: String(targetId) }), 'info')
           return
         }
         appendNotice(t('noticeResuming'), 'info')
