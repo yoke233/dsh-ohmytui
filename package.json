@@ -29,7 +29,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --experimental-transform-types \"tests/*.spec.ts\"",
+    "test": "node --disable-warning=ExperimentalWarning --test --experimental-transform-types \"tests/*.spec.ts\"",
     "check": "pnpm run typecheck && pnpm run test",
     "generate:themes": "node scripts/generate-omp-themes.mjs",
     "build": "tsc -b && tsdown",

@@ -11,6 +11,7 @@ import {
   SubagentPanelComponent,
   TodoPanelComponent,
   ToolCardComponent,
+  recentTranscriptStart,
   TranscriptViewport,
   ThinkingBlock,
   UserMessageComponent,
@@ -20,6 +21,7 @@ import {
   ComposerFooterComponent,
   InputBorderComponent,
   StatusLineComponent,
+  WorkingIndicatorComponent,
   chooseReasoningEffort,
   formatContextTokens,
   resolveSessionModelSelection,
@@ -51,6 +53,13 @@ describe('transcript components respect the render width', () => {
     }
   })
 
+  it('pads user messages horizontally and vertically', () => {
+    const rows = render(new UserMessageComponent('hello', palette, mdTheme), 20)
+    assert.equal(rows.length, 3)
+    assert.ok(rows[1]?.includes('  hello'))
+    for (const row of rows) assert.equal(visibleWidth(row), 20)
+  })
+
   it('tool cards stay within width in every status', () => {
     for (const width of widths) {
       const pending = new ToolCardComponent('bash', JSON.stringify({ command: longText }), 6, palette)
@@ -76,7 +85,7 @@ describe('transcript components respect the render width', () => {
 
   it('uses an inline pending status and sectioned settled output', () => {
     const pending = new ToolCardComponent('read', '{"i":"Reading entrypoint","path":"src/index.ts"}', 6, palette)
-    assert.deepEqual(render(pending, 48), ['', ' Read', '   src/index.ts'])
+    assert.deepEqual(render(pending, 48), ['', ' Read', '  src/index.ts'])
 
     pending.updateResult({
       message: {
@@ -91,27 +100,27 @@ describe('transcript components respect the render width', () => {
   })
   it('shows the command or query under the tool title', () => {
     const pwsh = new ToolCardComponent('pwsh', JSON.stringify({ command: 'Get-Process -Name node' }), 6, palette)
-    assert.deepEqual(render(pwsh, 48), ['', ' Pwsh', '   Get-Process -Name node'])
+    assert.deepEqual(render(pwsh, 48), ['', ' Pwsh', '  Get-Process -Name node'])
     const bash = new ToolCardComponent('bash', JSON.stringify({ description: 'list files', command: 'ls -la' }), 6, palette)
-    assert.deepEqual(render(bash, 48), ['', ' Bash', '   ls -la'])
+    assert.deepEqual(render(bash, 48), ['', ' Bash', '  ls -la'])
     const search = new ToolCardComponent('web_search', JSON.stringify({ query: 'dsh performance' }), 6, palette)
-    assert.deepEqual(render(search, 48), ['', ' Web Search', '   dsh performance'])
+    assert.deepEqual(render(search, 48), ['', ' Web Search', '  dsh performance'])
   })
 
   it('falls back to Unknown for an empty tool name', () => {
     const empty = new ToolCardComponent('', '{}', 6, palette)
-    assert.deepEqual(render(empty, 48), ['', ' Unknown', '   {}'])
+    assert.deepEqual(render(empty, 48), ['', ' Unknown', '  {}'])
   })
 
   it('shows path or description for read/write/edit/run_code tools', () => {
     const read = new ToolCardComponent('read', JSON.stringify({ file_path: 'src/a.ts' }), 6, palette)
-    assert.deepEqual(render(read, 48), ['', ' Read', '   src/a.ts'])
+    assert.deepEqual(render(read, 48), ['', ' Read', '  src/a.ts'])
     const write = new ToolCardComponent('write', JSON.stringify({ path: 'src/b.ts' }), 6, palette)
-    assert.deepEqual(render(write, 48), ['', ' Write', '   src/b.ts'])
+    assert.deepEqual(render(write, 48), ['', ' Write', '  src/b.ts'])
     const edit = new ToolCardComponent('edit', JSON.stringify({ file_path: 'src/c.ts' }), 6, palette)
-    assert.deepEqual(render(edit, 48), ['', ' Edit', '   src/c.ts'])
+    assert.deepEqual(render(edit, 48), ['', ' Edit', '  src/c.ts'])
     const code = new ToolCardComponent('run_code', JSON.stringify({ description: 'test snippet' }), 6, palette)
-    assert.deepEqual(render(code, 48), ['', ' Run Code', '   test snippet'])
+    assert.deepEqual(render(code, 48), ['', ' Run Code', '  test snippet'])
   })
 
   it('wraps long commands in the input section instead of truncating', () => {
@@ -140,11 +149,11 @@ describe('transcript components respect the render width', () => {
     assert.deepEqual(render(card, 60), [
       '',
       ' Str Replace Editor',
-      '   path: D:/src/a.ts',
-      '   old_str:',
-      '   old line',
-      '   new_str:',
-      '   new line',
+      '  path: D:/src/a.ts',
+      '  old_str:',
+      '  old line',
+      '  new_str:',
+      '  new line',
     ])
   })
 
@@ -259,6 +268,16 @@ describe('transcript components respect the render width', () => {
     assert.deepEqual(render(panel, 40), [])
   })
 
+  it('renders working activity as a separate compact line', () => {
+    const indicator = new WorkingIndicatorComponent()
+    assert.deepEqual(indicator.render(20), [''])
+    indicator.setText('working')
+    assert.deepEqual(indicator.render(20), ['', '  working', ''])
+    assert.equal(visibleWidth(indicator.render(4)[1] ?? ''), 4)
+    indicator.setText(undefined)
+    assert.deepEqual(indicator.render(20), [''])
+  })
+
   it('static cards and todo panels stay within width', () => {
     for (const width of widths) {
       const card = new StaticCardComponent([longText, 'short'], palette)
@@ -272,7 +291,7 @@ describe('transcript components respect the render width', () => {
     }
   })
 
-  it('renders todo panels as padded progress rails', () => {
+  it('renders todo panels as compact progress rails', () => {
     const todo = new TodoPanelComponent(palette)
     todo.setTodos([
       { content: 'active task', status: 'in_progress' },
@@ -280,11 +299,11 @@ describe('transcript components respect the render width', () => {
       { content: 'done task', status: 'completed' },
     ])
     const rows = todo.render(80)
-    assert.equal(rows[0], '')
-    assert.equal(rows.at(-1), '')
-    assert.ok(rows.some(row => row.includes('Plan') && row.includes('1/3')))
+    assert.equal(rows.length, 5)
+    assert.ok(rows[0]?.includes('Plan') && rows[0].includes('1/3'))
     assert.ok(rows.some(row => row.includes('│') && row.includes('active task')))
-    assert.ok(rows.filter(Boolean).every(row => row.startsWith('  ')))
+    assert.ok(rows.every(row => row.startsWith('  ')))
+    assert.ok(rows.every(row => !row.startsWith('   ')))
   })
 
   it('the banner stays within width', () => {
@@ -360,6 +379,13 @@ describe('transcript chronology', () => {
 
 })
 
+describe('resume transcript window', () => {
+  it('keeps two thousand recent raw events instead of only two hundred', () => {
+    assert.equal(recentTranscriptStart(24_548), 22_548)
+    assert.equal(recentTranscriptStart(1_500), 0)
+  })
+})
+
 describe('transcript viewport', () => {
   const lines = Array.from({ length: 20 }, (_, i) => `line-${i}`)
   const staticComponent = (rows: string[]) => ({
@@ -407,10 +433,10 @@ describe('composer chrome', () => {
     )
     const [row] = status.render(32)
     assert.equal(visibleWidth(row!), 32)
-    assert.ok(row!.startsWith(' ─── '))
     assert.ok(row!.includes('标准  '))
     assert.ok(row!.includes('…'))
-    assert.ok(row!.includes(' main '))
+    assert.ok(row!.includes(''))
+    assert.ok(row!.includes(' main'))
     assert.ok(row!.endsWith(' '))
   })
   it('uses compact built-in segments before truncating a narrow sidebar', () => {
@@ -455,7 +481,7 @@ describe('composer chrome', () => {
       palette,
     )
     const [row] = footer.render(48)
-    assert.equal(row, '  deepseek-v4-flash · max · ctx 100k/1m')
+    assert.equal(row, '  ◆ deepseek-v4-flash · max · ctx 100k/1m')
     assert.ok(visibleWidth(row!) <= 48)
   })
   it('renders permission state immediately after context usage', () => {
@@ -481,19 +507,19 @@ describe('composer chrome', () => {
     )
     assert.equal(
       footer.render(64)[0],
-      '  deepseek-v4-flash · max · ctx 0/1m · workspace-write',
+      '  ◆ deepseek-v4-flash · max · ctx 0/1m · workspace-write',
     )
     assert.equal(
       footer.render(42)[0],
-      '  de…sh · max · ctx 0/1m · workspace-write',
+      '  ◆ d…h · max · ctx 0/1m · workspace-write',
     )
     assert.equal(
       footer.render(34)[0],
-      '  … · max · 0/1m · workspace-write',
+      '  ◆ max · 0/1m · workspace-write',
     )
     assert.equal(
       footer.render(30)[0],
-      '  max · 0/1m · workspace-write',
+      '  ◆ 0/1m · workspace-write',
     )
   })
 
@@ -518,10 +544,10 @@ describe('composer chrome', () => {
     )
     assert.equal(
       footer.render(80)[0],
-      '  deepseek-v4-flash · max · ctx 0/1m · workspace-write · jobs 2',
+      '  ◆ deepseek-v4-flash · max · ctx 0/1m · workspace-write · jobs 2',
     )
     const narrow = footer.render(56)[0]!
-    assert.equal(narrow, '  deepseek-v4-flash · max · ctx 0/1m · workspace-write')
+    assert.equal(narrow, '  ◆ deepseek-v4-flash · max · ctx 0/1m · workspace-write')
     assert.ok(!narrow.includes('jobs'))
     assert.ok(visibleWidth(narrow) <= 56)
 
@@ -580,11 +606,11 @@ describe('composer chrome', () => {
     const enabled = createPalette(true, 'dark', true)
     const border = '\u001b[38;2;137;180;250m'
     const surface = '\u001b[48;2;17;17;27m'
-    const tail = '\u001b[38;2;17;17;27m\u001b[39m'
+    const tail = '\u001b[38;2;17;17;27m\u001b[39m'
     const [rail] = new InputBorderComponent(enabled).render(12)
     assert.equal(rail, ` ${border}${'─'.repeat(10)}\u001b[39m `)
     const [emptyTop] = new StatusLineComponent([], () => undefined, enabled).render(20)
-    assert.ok(emptyTop!.startsWith(` ${border}───\u001b[39m`))
+    assert.ok(emptyTop!.includes(border))
     assert.equal(visibleWidth(emptyTop!), 20)
 
     const values: Record<string, string> = {
@@ -597,9 +623,9 @@ describe('composer chrome', () => {
       name => values[name],
       enabled,
     ).render(72)
-    assert.ok(top!.includes(`${surface} `))
+    assert.ok(top!.includes(`${tail}${surface} `))
     assert.ok(top!.includes(`${enabled.path(' D:/Projects/dsh')} `))
-    assert.ok(top!.includes(`\u001b[49m${tail}`))
+    assert.ok(top!.indexOf(tail) < top!.indexOf(surface))
     assert.equal(visibleWidth(top!), 72)
   })
   it('renders a faint expected-argument hint inside the composer', () => {

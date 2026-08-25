@@ -147,6 +147,15 @@ export interface Agent {
   inject(message: UserMessage): void;      // 排队模型可见上下文，不唤醒
 }
 export type InboxTarget = 'next-turn' | 'next-step';
+export interface Inbox {
+  readonly nextTurn: readonly UserMessage[];
+  readonly nextStep: readonly UserMessage[];
+  readonly hasPending: boolean;
+  clear(): void;
+  replace(messageId: MessageId, message: UserMessage): boolean;
+  remove(messageId: MessageId): boolean;
+  splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];
+}
 ```
 
 ### 2.2 AgentRegistry（`ctx.agents`）
@@ -402,6 +411,11 @@ tool-todo、tool-goal、tool-ralph、tool-str-replace-editor、repeat-tool-remin
 → TUI bundle 的 patch 只需**覆盖** `agent-loop`/`system-prompt`/`llm-deepseek`/`fs-sandbox`/`tools`
 行 + **插入** session-reference/storage 三件套/session-projection-cache/tmux-context/tui 行。
 
+可选的独立 `dsh-web-access` bundle 安装在 `tui` Profile 后层：禁用 base 的
+`web-search-deepseek` 与 `tool-web`，保留 `web` seam 并把 search/fetch provider 固定为
+`web-access`，由插件独占 `web_search` 并额外注册 `fetch_content`、`source_check`、
+`get_search_content`。该能力不进入 TUI 源码或 `cordis.patch.yml`；通过 Profile bundle 组合。
+
 ---
 
 ## 6. 会话持久化/投影/查询（scout 汇总，rc.2 逐字）
@@ -624,7 +638,7 @@ interface Config {
 2. **取 agent**：`ctx.agents.get(sessionId)` → `Agent`；`agent.session.events` 为不可变日志快照。
 3. **渲染主通道**：`session/event` 事件（追加后馈送）+ 初始 `agent.session.events` 重放（种子不发出）。
 4. **状态**：`agent/status` 事件 → 编辑框边框/指示器；`agent.session.header.cwd` 为 workspace。
-5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；剪贴板图片在草稿中只保留内存字节与 `[Image #N]` 标记，提交时先由 `ctx.attachments.saveImages` 持久化仍保留标记的图片，再把 durable image block 加入 `content`。idle 时启动回合，running 时由最近的下一 step 领取。`agent/inbox/inserted` 立即投影到待处理面板，正式 `user/message` 到达后按 message id 移除预览并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。
+5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；剪贴板图片在草稿中只保留内存字节与 `[Image #N]` 标记，提交时先由 `ctx.attachments.saveImages` 持久化仍保留标记的图片，再把 durable image block 加入 `content`。idle 时立即在 transcript 乐观渲染普通用户消息并按 message id 等待正式事件确认，不显示 steer 待处理投影；running 时由最近的下一 step 领取，并将 `agent/inbox/inserted` 投影到 Steering 面板。正式 `user/message` 到达后，idle 乐观消息只确认去重，running 预览则按 message id 移除并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。Alt+Up 合并 `inbox.nextStep`/`nextTurn` 中可编辑的直接用户文本到当前草稿，并通过 `inbox.remove(message.id)` 逐条撤回原队列项。
 6. **中断**：`agent.cancel({ kind: 'user' })`。
 7. **提问**：`ctx.userQuestions.registerProvider(provider)`；对话框完成后 resolve `AskUserQuestionAnswer`。
 8. **授权**：监听 waterfall `approval/request`；只认领当前前台 agent，弹框返回 `allowed-once`/`rejected`，中止返回 `cancelled`，其他 agent 调用 `next()`。

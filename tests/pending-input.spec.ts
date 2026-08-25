@@ -3,13 +3,25 @@ import assert from 'node:assert/strict'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createTranslator } from '../src/i18n.ts'
 import { createPalette, markdownTheme } from '../src/theme.ts'
-import { PendingInputPanel } from '../src/components/pending-input.ts'
+import {
+  PendingInputPanel,
+  mergePendingInput,
+  shouldProjectImmediateUserInput,
+  shouldProjectPendingInput,
+} from '../src/components/pending-input.ts'
 
 const palette = createPalette(false, 'dark', true)
 const mdTheme = markdownTheme(palette)
 const t = createTranslator('zh-CN')
 
 describe('composer steer projection', () => {
+  it('projects only messages added while the agent is already running', () => {
+    assert.equal(shouldProjectPendingInput('idle'), false)
+    assert.equal(shouldProjectPendingInput('running'), true)
+    assert.equal(shouldProjectImmediateUserInput('idle'), true)
+    assert.equal(shouldProjectImmediateUserInput('running'), false)
+  })
+
   it('shows submitted user content until its durable message is rendered', () => {
     const panel = new PendingInputPanel(palette, mdTheme, t)
     const message = createUserMessage({
@@ -19,13 +31,26 @@ describe('composer steer projection', () => {
 
     assert.equal(panel.insert(message), true)
     assert.equal(panel.count, 1)
-    assert.match(panel.render(48).join('\n'), /steer · 待处理（1）/)
-    assert.match(panel.render(48).join('\n'), /补充这个约束/)
+    assert.match(panel.render(48).join('\n'), /Steering: 补充这个约束/)
+    assert.match(panel.render(48).join('\n'), /Alt\+Up 合并编辑全部待处理消息/)
+    assert.equal(panel.render(48).at(0), '')
     assert.equal(panel.render(48).at(-1), '')
 
     assert.equal(panel.remove(message.id), true)
     assert.equal(panel.count, 0)
     assert.deepEqual(panel.render(48), [])
+  })
+
+  it('merges all queued text with the current editor draft', () => {
+    const first = createUserMessage({
+      content: [{ type: 'text', text: '第一条约束' }],
+      source: { kind: 'user' },
+    })
+    const second = createUserMessage({
+      content: [{ type: 'text', text: '第二条约束' }],
+      source: { kind: 'user' },
+    })
+    assert.equal(mergePendingInput([first, second], '当前草稿'), '第一条约束\n\n第二条约束\n\n当前草稿')
   })
 
   it('renders every queued steer in insertion order', () => {
@@ -40,6 +65,7 @@ describe('composer steer projection', () => {
     }))
 
     assert.match(panel.render(48).join('\n'), /第一条约束[\s\S]*第二条约束/)
+    assert.equal(panel.render(48).at(0), '')
     assert.equal(panel.render(48).at(-1), '')
   })
 
@@ -90,6 +116,7 @@ describe('composer steer projection', () => {
 
     const rows = panel.render(24)
     assert.match(rows.join('\n'), /…/)
+    assert.equal(rows.at(0), '')
     assert.equal(rows.at(-1), '')
   })
 })

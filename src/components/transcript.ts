@@ -30,6 +30,14 @@ const DSH_LOGO = [
 ]
 
 /** Cache rendered rows for a component until its state or width changes. */
+/** Raw event budget retained when a persisted transcript is first resumed. */
+export const TRANSCRIPT_RECENT_EVENT_LIMIT = 2_000
+export const TRANSCRIPT_LOAD_EVENT_STEP = 1_000
+
+export function recentTranscriptStart(eventCount: number): number {
+  return Math.max(0, eventCount - TRANSCRIPT_RECENT_EVENT_LIMIT)
+}
+
 interface RenderCache {
   key: string
   lines: string[]
@@ -222,7 +230,7 @@ export class UserMessageComponent extends Container {
     verticalPadding = 1,
   ) {
     super()
-    this.addChild(new Markdown(displayText(text), 1, verticalPadding, mdTheme, {
+    this.addChild(new Markdown(displayText(text), 2, verticalPadding, mdTheme, {
       color: (value: string) => palette.text(value),
     }, {
       preserveOrderedListMarkers: true,
@@ -238,8 +246,9 @@ export class UserMessageComponent extends Container {
   override render(width: number): string[] {
     const cached = cachedRender(this.renderCache, String(width), () =>
       super.render(width).map((row) => {
-        const fill = ' '.repeat(Math.max(0, width - visibleWidth(row)))
-        return this.palette.userMessageBg(`${row}${fill}`)
+        const clipped = truncateToWidth(row, Math.max(1, width), '')
+        const fill = ' '.repeat(Math.max(0, width - visibleWidth(clipped)))
+        return this.palette.userMessageBg(`${clipped}${fill}`)
       }))
     this.renderCache = cached.cache
     return cached.lines
@@ -252,7 +261,7 @@ export class ThinkingBlock extends Container {
 
   constructor(reasoning: string, palette: Palette, mdTheme: MarkdownTheme) {
     super()
-    this.addChild(new Markdown(displayText(reasoning), 1, 0, mdTheme, {
+    this.addChild(new Markdown(displayText(reasoning), 2, 0, mdTheme, {
       color: (value: string) => palette.thinking(value),
       italic: true,
     }))
@@ -283,7 +292,7 @@ function assistantMessageChildren(
   if (reasoning !== '' && showReasoning) children.push(new ThinkingBlock(reasoning, palette, mdTheme))
   if (text !== '') {
     if (children.length > 0) children.push(new Spacer(1))
-    children.push(new Markdown(text, 1, 0, mdTheme, {
+    children.push(new Markdown(text, 2, 0, mdTheme, {
       color: (value: string) => palette.text(value),
     }))
   }
@@ -619,8 +628,8 @@ export class ToolCardComponent implements Component {
       const pending = `${this.palette.warning('')} ${this.palette.toolTitle(title)}`
       const rows = ['', truncateToWidth(pending, Math.max(1, width), '')]
       if (detail !== undefined) {
-        for (const line of detail.split('\n').flatMap(line => wrapToWidth(line, Math.max(1, width - 3)))) {
-          rows.push(truncateToWidth(`   ${this.palette.muted(line)}`, Math.max(1, width), ''))
+        for (const line of detail.split('\n').flatMap(line => wrapToWidth(line, Math.max(1, width - 2)))) {
+          rows.push(truncateToWidth(`  ${this.palette.muted(line)}`, Math.max(1, width), ''))
         }
       }
       return rows
@@ -851,21 +860,20 @@ export class TodoPanelComponent implements Component {
     const progress = this.todos.length === 0 ? '' : this.palette.dim(`  ${completed}/${this.todos.length}`)
     const rail = this.palette.borderMuted('│')
     const lines: string[] = [
-      '',
       `  ${this.palette.borderMuted('╭─')} ${this.palette.bold(this.palette.accent(' Plan'))}${progress}`,
     ]
 
     if (this.goal !== undefined) {
-      lines.push(`  ${rail}  ${this.palette.dim(`Goal · ${this.goal.phase}: ${displayText(this.goal.objective)}`)}`)
+      lines.push(`  ${rail} ${this.palette.dim(`Goal · ${this.goal.phase}: ${displayText(this.goal.objective)}`)}`)
     }
     for (const todo of this.todos) {
       const mark = todo.status === 'completed' ? '󰄲' : todo.status === 'in_progress' ? '' : ''
       const color = todo.status === 'completed'
         ? this.palette.dim
         : todo.status === 'in_progress' ? this.palette.accent : this.palette.text
-      lines.push(`  ${rail}  ${color(`${mark} ${displayText(todo.content)}`)}`)
+      lines.push(`  ${rail} ${color(`${mark} ${displayText(todo.content)}`)}`)
     }
-    lines.push(`  ${this.palette.borderMuted('╰─')}`, '')
+    lines.push(`  ${this.palette.borderMuted('╰─')}`)
 
     return lines.map(line => truncateToWidth(line, Math.max(1, width), ''))
   }

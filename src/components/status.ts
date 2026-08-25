@@ -103,6 +103,23 @@ function compactUnit(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '')
 }
 
+/** A transient activity line rendered between the transcript and composer. */
+export class WorkingIndicatorComponent implements Component {
+  private text: string | undefined
+
+  setText(text: string | undefined): void {
+    this.text = text
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    if (width <= 0) return []
+    if (this.text === undefined) return ['']
+    return ['', truncateToWidth(`  ${this.text}`, width, ''), '']
+  }
+}
+
 /**
  * The composer's inset top rail. Wide terminals keep the configured
  * mode/path/Git prompt. When that surface no longer fits, the built-in
@@ -124,15 +141,15 @@ export class StatusLineComponent implements Component {
     if (safeWidth <= 2) return [this.palette.border('─'.repeat(safeWidth))]
 
     const innerWidth = safeWidth - 2
-    const capWidth = Math.min(3, innerWidth)
-    const segmentOverhead = 3 // leading/trailing padding plus the Powerline tail
+    const capWidth = Math.min(1, innerWidth)
+    const segmentOverhead = 3 // segment padding plus its left Powerline cap
     const promptBudget = Math.max(0, innerWidth - capWidth - segmentOverhead)
-    const left = this.renderLeft(promptBudget)
-    const segment = left === ''
+    const status = this.renderLeft(promptBudget)
+    const segment = status === ''
       ? ''
-      : `${this.palette.statusLineBg(` ${left} `)}${this.palette.statusLineTail('')}`
+      : `${this.palette.statusLineTail('')}${this.palette.statusLineBg(` ${status} `)}`
     const fillWidth = Math.max(0, innerWidth - capWidth - visibleWidth(segment))
-    return [` ${this.palette.border('─'.repeat(capWidth))}${segment}${this.palette.border('─'.repeat(fillWidth))} `]
+    return [` ${this.palette.border('─'.repeat(fillWidth))}${segment}${this.palette.border('─'.repeat(capWidth))} `]
   }
 
   private capMode(value: string | undefined): string | undefined {
@@ -251,12 +268,15 @@ export class ComposerFooterComponent implements Component {
       : full === '' ? extra : `${full} ${this.palette.muted('·')} ${extra}`
     // The jobs indicator is intentionally lower priority than configured footer
     // content: show it only when the uncompressed footer has spare width.
-    const text = visibleWidth(fullWithExtra) <= contentWidth
+    const marker = full === '' && fullWithExtra === '' ? '' : `${this.palette.accent('◆')} `
+    const textWidth = Math.max(0, contentWidth - visibleWidth(marker))
+    const text = visibleWidth(fullWithExtra) <= textWidth
       ? fullWithExtra
-      : visibleWidth(full) <= contentWidth
+      : visibleWidth(full) <= textWidth
         ? full
-        : this.renderCompact(contentWidth) ?? truncateToWidth(full, contentWidth, '')
-    return safeWidth <= 2 ? [text] : [`  ${text}`]
+        : this.renderCompact(textWidth) ?? truncateToWidth(full, textWidth, '')
+    const row = `${marker}${text}`
+    return safeWidth <= 2 ? [truncateToWidth(row, safeWidth, '')] : [`  ${row}`]
   }
 
   /** Compress the footer in stages: model, then ctx prefix, then dropping segments. */

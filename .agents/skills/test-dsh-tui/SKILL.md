@@ -26,7 +26,7 @@ From the repository root:
 
 ```powershell
 pnpm run typecheck
-pnpm exec node --test --experimental-transform-types "tests/<focused>.spec.ts"
+pnpm exec node --disable-warning=ExperimentalWarning --test --experimental-transform-types "tests/<focused>.spec.ts"
 ```
 
 Run `pnpm run check` before committing. Completion criterion: the focused behavior and every source-suite test pass.
@@ -93,7 +93,7 @@ A running model turn intentionally blocks `/reload`; wait for the turn to settle
 On Linux with `dsh` and `script` available, the repository also carries an opt-in launcher smoke test:
 
 ```sh
-DSH_E2E=1 pnpm exec node --test --experimental-transform-types tests/e2e-smoke.spec.ts
+DSH_E2E=1 pnpm exec node --disable-warning=ExperimentalWarning --test --experimental-transform-types tests/e2e-smoke.spec.ts
 ```
 
 ## Failure triage

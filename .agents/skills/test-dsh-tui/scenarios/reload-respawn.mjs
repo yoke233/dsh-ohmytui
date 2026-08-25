@@ -13,7 +13,9 @@ import { join } from 'node:path'
 export async function run(tui) {
   const packageName = 'dsh-live-reload-fixture'
   const turnEnded = tui.marker('reload-turn-ended')
+  const nodeOptionsMarker = tui.marker('reload-node-options')
   rmSync(turnEnded, { force: true })
+  rmSync(nodeOptionsMarker, { force: true })
 
   const fixture = tui.packFixture({
     name: packageName,
@@ -45,6 +47,7 @@ export async function run(tui) {
       '  }',
       '}',
       'export function apply(ctx) {',
+      "  writeFileSync(join(process.env.DSH_HOME, 'reload-node-options'), process.env.NODE_OPTIONS ?? '')",
       "  ctx.llm.registerAdapter(['reload-fixture'], new ControlledAdapter())",
       "  ctx.on('session/event', (session, event) => {",
       "    if (event.type !== 'turn/end') return",
@@ -63,6 +66,11 @@ export async function run(tui) {
   })
   const pidBefore = tui.pid()
   const supervisorPid = tui.terminal.pid
+  await tui.waitFor(() => existsSync(nodeOptionsMarker), 5_000, 'launcher warning suppression marker')
+  const nodeOptions = readFileSync(nodeOptionsMarker, 'utf8')
+  if (!nodeOptions.includes('--disable-warning=ExperimentalWarning')) {
+    throw new Error(`TUI process did not inherit warning suppression: ${nodeOptions}`)
+  }
 
   // One settled turn moves the session across the persistence gate, so the
   // reload can prove real --resume continuity instead of blank re-creation.
@@ -84,7 +92,14 @@ export async function run(tui) {
   writeFileSync(entry, changed)
 
   const offset = tui.mark()
+  const reloadStartedAt = Date.now()
   tui.submit('/reload')
+  await tui.waitForOutput(/正在启动新一代进程|starting a new generation/i, {
+    since: offset,
+    timeoutMs: 30_000,
+    label: 'supervisor starts replacement generation',
+  })
+  const shutdownMs = Date.now() - reloadStartedAt
   await tui.waitForOutput('RESPAWN_RELOAD_OK', {
     since: offset,
     timeoutMs: 60_000,
@@ -115,8 +130,14 @@ export async function run(tui) {
     throw new Error(`second generation did not resume the session: ${commandLine}`)
   }
 
+  const reloadMs = Date.now() - reloadStartedAt
+  const startupMs = reloadMs - shutdownMs
   const screenshot = await tui.snapshot('reload-respawn')
   return {
+    reloadMs,
+    shutdownMs,
+    startupMs,
+    experimentalWarningsSuppressed: true,
     newCodeLoaded: true,
     processReplaced: true,
     sessionResumed: true,

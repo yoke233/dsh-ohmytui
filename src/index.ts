@@ -28,7 +28,7 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { CombinedAutocompleteProvider, type AutocompleteItem, type SlashCommand } from '@earendil-works/pi-tui'
 import { createUserMessage, errorChain, type CallId, type ContentBlock, type LlmConfigurableProvider, type LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
-import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
@@ -119,18 +119,26 @@ import {
   TranscriptViewport,
   AssistantStreamController,
   TodoPanelComponent,
+  TRANSCRIPT_LOAD_EVENT_STEP,
   ToolCardComponent,
   UserMessageComponent,
   toolDetail,
   toolLabel,
+  recentTranscriptStart,
   type ToolCardVisibility,
 } from './components/transcript.ts'
-import { PendingInputPanel } from './components/pending-input.ts'
+import {
+  PendingInputPanel,
+  mergePendingInput,
+  shouldProjectImmediateUserInput,
+  shouldProjectPendingInput,
+} from './components/pending-input.ts'
 import {
   CommandHintComponent,
   ComposerFooterComponent,
   InputBorderComponent,
   StatusLineComponent,
+  WorkingIndicatorComponent,
   formatContextTokens,
   chooseReasoningEffort,
   resolveSessionModelSelection,
@@ -165,6 +173,7 @@ import {
 } from './image-paste.ts'
 import { displayInlineText, displayText } from './components/text.ts'
 import { createOrcaStatusReporter } from './orca-status.ts'
+import { WorkingWordRotation, formatWorkingElapsed, workingActivityText } from './working-words.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
 import { hasConversationData, recordConversationPreset } from './session-lifecycle.ts'
 import type { BridgeConfig, WechatBridge } from './wechat/index.ts'
@@ -493,17 +502,18 @@ export class Tui extends Service {
       const color = summary.stopping ? palette.warning : palette.accent
       return color(`jobs ${summary.count}`)
     }
-    let statusLine = new StatusLineComponent(leftTemplate, promptValue, palette)
+    let statusLine = new StatusLineComponent(rightTemplate, promptValue, palette)
     const todoPanel = new TodoPanelComponent(palette)
     const subagentPanel = new SubagentPanelComponent(palette)
     const pendingInputPanel = new PendingInputPanel(palette, mdTheme, t)
+    const workingIndicator = new WorkingIndicatorComponent()
     const noticeSlot = new Container()
-    const notice = new Text('', 1, 0)
+    const notice = new Text('', 2, 0)
     const askSlot = new Container()
     let commandHintText: string | undefined
     const commandHint = new CommandHintComponent(() => commandHintText, palette)
     const inputBorder = new InputBorderComponent(palette)
-    let footer = new ComposerFooterComponent(rightTemplate, promptValue, palette, jobsFooterValue)
+    let footer = new ComposerFooterComponent(leftTemplate, promptValue, palette, jobsFooterValue)
     let noticeMounted = false
     let noticeTimer: NodeJS.Timeout | undefined
 
@@ -514,7 +524,7 @@ export class Tui extends Service {
     const rebuildChrome = (): void => {
       ui.clear()
       ui.addChild(chat)
-      ui.addChild(new Spacer(1))
+      ui.addChild(workingIndicator)
       ui.addChild(todoPanel)
       ui.addChild(subagentPanel)
       ui.addChild(pendingInputPanel)
@@ -556,7 +566,8 @@ export class Tui extends Service {
 
     const updateInputPrompt = (): void => {
       const indicator = ctx.tuiPrompt.get('indicator') ?? ''
-      const first = indicator === '' ? '' : `${indicator} `
+      const symbol = ctx.tuiPrompt.get('symbol') ?? palette.bold(palette.accent('❯'))
+      const first = `${indicator === '' ? symbol : indicator} `
       editor.setPrompt({ first, continuation: ' '.repeat(visibleWidth(first)) })
     }
 
@@ -635,49 +646,45 @@ export class Tui extends Service {
     let currentScheme: TerminalColorScheme = 'dark'
     let spinnerTimer: NodeJS.Timeout | undefined
     let spinnerIndex = 0
+    const workingWords = new WorkingWordRotation()
+    let workingWord = 'Working'
+    let workingStartedAt = 0
     let isCompacting = false
-    const refreshCompacting = (): void => {
+    const refreshActivity = (): void => {
       if (isCompacting) {
-        indicatorValue.set(palette.warning(` ${t('noticeCompacting')} `))
-      } else if (spinnerTimer === undefined) {
         indicatorValue.set(undefined)
+        workingIndicator.setText(palette.bold(palette.warning(`✶ ${t('noticeCompacting')}`)))
+      } else {
+        indicatorValue.set(undefined)
+        workingIndicator.setText(spinnerTimer === undefined
+          ? undefined
+          : `${palette.bold(palette.accent(workingActivityText(SPINNER_FRAMES[spinnerIndex] ?? '', workingWord)))}${palette.muted(` (${formatWorkingElapsed(Date.now() - workingStartedAt)} · ↓ ${formatTokens(tokenTotals.outputTokens)} tokens)`)}`)
       }
       updateInputPrompt()
       ui.requestRender()
     }
+
+    const refreshCompacting = refreshActivity
     let estimatedContextWindow = DEFAULT_CONTEXT_WINDOW
     let contextEstimateRevision = 0
 
     const startSpinner = (): void => {
+      if (spinnerTimer !== undefined) return
       spinnerIndex = 0
+      workingWord = workingWords.next()
+      workingStartedAt = Date.now()
       spinnerTimer = setInterval(() => {
         spinnerIndex = (spinnerIndex + 1) % SPINNER_FRAMES.length
-        if (isCompacting) {
-          indicatorValue.set(palette.warning(` ${t('noticeCompacting')} `))
-        } else {
-          indicatorValue.set(palette.bold(palette.accent(SPINNER_FRAMES[spinnerIndex] ?? '')))
-        }
-        updateInputPrompt()
-        ui.requestRender()
+        refreshActivity()
       }, SPINNER_INTERVAL_MS)
-      if (isCompacting) {
-        indicatorValue.set(palette.warning(` ${t('noticeCompacting')} `))
-      } else {
-        indicatorValue.set(palette.bold(palette.accent(SPINNER_FRAMES[spinnerIndex] ?? '')))
-      }
-      updateInputPrompt()
+      refreshActivity()
     }
 
     const stopSpinner = (): void => {
       if (spinnerTimer === undefined) return
       clearInterval(spinnerTimer)
       spinnerTimer = undefined
-      if (isCompacting) {
-        indicatorValue.set(palette.warning(` ${t('noticeCompacting')} `))
-      } else {
-        indicatorValue.set(undefined)
-      }
-      updateInputPrompt()
+      refreshActivity()
     }
 
     /** Expensive status inputs (token meter + permission) are refreshed at most once per second. */
@@ -750,7 +757,7 @@ export class Tui extends Service {
       queuedValue.set(pendingInputPanel.count === 0
         ? undefined
         : palette.muted(` ${t('queuedSteer', { count: pendingInputPanel.count })}`))
-      symbolValue.set(undefined)
+      symbolValue.set(palette.bold(palette.accent('❯')))
       updateInputPrompt()
     }
 
@@ -810,9 +817,9 @@ export class Tui extends Service {
     let toolsVisibility: ToolCardVisibility = 'collapsed'
     let live = false
     let header: HeaderComponent | undefined
-    const TRANSCRIPT_RECENT_LIMIT = 200
-    const TRANSCRIPT_LOAD_STEP = 200
     let transcriptStart = 0
+    /** Idle submissions already painted while awaiting their durable user/message event. */
+    const immediateUserMessages = new Map<string, Component>()
     /** Invalidates chunked rebuilds that are superseded by a newer window. */
     let transcriptBuildGeneration = 0
     const renderEvent = (event: SessionEvent, syncStatus = true, notify = true): void => {
@@ -822,6 +829,9 @@ export class Tui extends Service {
           const source = event.data.source
           const text = displayText(contentText(event.data.content).trim())
           if (text === '') break
+          // Idle submissions are painted before steer() so the input feels
+          // immediate. Their durable event confirms that existing component.
+          if (source.kind === 'user' && immediateUserMessages.delete(event.data.id)) break
           chat.addChild(new Spacer(1))
           if (source.kind !== 'user') {
             const label = source.kind === 'plugin' ? source.plugin : source.kind
@@ -905,6 +915,7 @@ export class Tui extends Service {
           const card = new ContextCardComponent(event.data.point, detail, maxToolOutputLines, palette, 'Hook')
           card.setVisibility(toolsVisibility)
           contextCards.add(card)
+          chat.addChild(new Spacer(1))
           chat.addChild(card)
           if (live && notify && blocked) {
             appendNotice(t('noticeHookBlocked', {
@@ -917,7 +928,6 @@ export class Tui extends Service {
         case 'compaction/start':
           isCompacting = true
           refreshCompacting()
-          if (live && notify) appendNotice(t('noticeCompacting'), 'info')
           break
         case 'compaction/end':
           isCompacting = false
@@ -977,6 +987,7 @@ export class Tui extends Service {
       hookInvocations.clear()
       chat.followLatest = anchor === 'bottom'
       chat.lineOffset = 0
+      immediateUserMessages.clear()
       chat.clear()
       if (header !== undefined) chat.addChild(header)
       chat.addChild(new TranscriptFoldNoticeComponent(() => transcriptStart, palette))
@@ -1016,13 +1027,13 @@ export class Tui extends Service {
         else if (ev.type === 'compaction/end') isCompacting = false
       }
       refreshCompacting()
-      transcriptStart = Math.max(0, events.length - TRANSCRIPT_RECENT_LIMIT)
+      transcriptStart = recentTranscriptStart(events.length)
       renderTranscriptWindow(transcriptStart, 'bottom')
     }
 
     const loadOlderTranscript = (): void => {
       if (transcriptStart <= 0) return
-      transcriptStart = Math.max(0, transcriptStart - TRANSCRIPT_LOAD_STEP)
+      transcriptStart = Math.max(0, transcriptStart - TRANSCRIPT_LOAD_EVENT_STEP)
       renderTranscriptWindow(transcriptStart, 'top')
     }
 
@@ -1100,7 +1111,6 @@ export class Tui extends Service {
         if (imagePasteDisposed || agent !== target || activeAgentGeneration !== generation) return
         const marker = imagePasteDraft.add(image)
         editor.insertTextAtCursor(marker)
-        appendNotice(t('noticeImagePasteAttached', { marker: marker.trim() }), 'info')
       } catch (error: unknown) {
         appendNotice(t('noticeImagePasteFailed', { error: errorChain(error) }), 'warning')
       } finally {
@@ -2160,11 +2170,11 @@ export class Tui extends Service {
                   if (editLeft) {
                     leftPrompt = next
                     leftTemplate = parseTuiPromptTemplate(displayInlineText(next))
-                    statusLine = new StatusLineComponent(leftTemplate, promptValue, palette)
+                    statusLine = new StatusLineComponent(rightTemplate, promptValue, palette)
                   } else {
                     rightPrompt = next
                     rightTemplate = parseTuiPromptTemplate(displayInlineText(next))
-                    footer = new ComposerFooterComponent(rightTemplate, promptValue, palette, jobsFooterValue)
+                    footer = new ComposerFooterComponent(leftTemplate, promptValue, palette, jobsFooterValue)
                   }
                   await tuiSettings.update({ leftPrompt, rightPrompt })
                   rebuildChrome()
@@ -2866,6 +2876,25 @@ export class Tui extends Service {
       })
     }
 
+    const projectImmediateUserMessage = (message: UserMessage, status: AgentStatus): Component | undefined => {
+      if (!shouldProjectImmediateUserInput(status)) return undefined
+      const text = displayText(contentText(message.content).trim())
+      if (text === '') return undefined
+      const projected = new Container()
+      projected.addChild(new Spacer(1))
+      projected.addChild(new UserMessageComponent(text, palette, mdTheme))
+      immediateUserMessages.set(message.id, projected)
+      chat.addChild(projected)
+      ui.requestRender()
+      return projected
+    }
+
+    const rollbackImmediateUserMessage = (message: UserMessage, projected: Component | undefined): void => {
+      if (projected === undefined || !immediateUserMessages.delete(message.id)) return
+      chat.removeChild(projected)
+      ui.requestRender()
+    }
+
     editor.onSubmit = (text: string): void => {
       const current = agent
       if (current === undefined) return
@@ -2911,7 +2940,14 @@ export class Tui extends Service {
         if (!ownsEditor()) return
         if (additionalContext !== undefined) current.inject(additionalContext)
         recordActivePreset(current)
-        current.steer(createUserMessage({ content, source: { kind: 'user' } }))
+        const message = createUserMessage({ content, source: { kind: 'user' } })
+        const projected = projectImmediateUserMessage(message, current.status)
+        try {
+          current.steer(message)
+        } catch (error: unknown) {
+          rollbackImmediateUserMessage(message, projected)
+          throw error
+        }
         refreshTitle()
       }
 
@@ -2996,6 +3032,20 @@ export class Tui extends Service {
       if (editor.focused && isImagePasteShortcut(data)) {
         void pasteClipboardImage()
         return { consume: true }
+      }
+      if (editor.focused && matchesKey(data, 'alt+up' as Parameters<typeof matchesKey>[1])) {
+        const current = agent
+        if (current !== undefined && shouldProjectPendingInput(current.status)) {
+          const pending = [...current.inbox.nextStep, ...current.inbox.nextTurn]
+            .filter(message => message.source.kind === 'user' && contentText(message.content).trim() !== '')
+          if (pending.length > 0) {
+            const merged = mergePendingInput(pending, editor.getText())
+            for (const message of pending) current.inbox.remove(message.id)
+            editor.setText(merged)
+            ui.requestRender()
+            return { consume: true }
+          }
+        }
       }
       if (matchesKey(data, 'ctrl+c')) {
         if (exitArmed) {
@@ -3447,10 +3497,16 @@ export class Tui extends Service {
       const subscribeInbox = (target: Agent): void => {
         offInboxInserted?.()
         offInboxDiscarded?.()
-        pendingInputPanel.sync([...target.inbox.nextStep, ...target.inbox.nextTurn])
+        pendingInputPanel.sync(shouldProjectPendingInput(target.status)
+          ? [...target.inbox.nextStep, ...target.inbox.nextTurn]
+              .filter(message => !immediateUserMessages.has(message.id))
+          : [])
         refreshPendingInput()
         offInboxInserted = ctx.on('agent/inbox/inserted', ({ agent: candidate, message }) => {
-          if (candidate !== target || !pendingInputPanel.insert(message)) return
+          if (candidate !== target
+            || immediateUserMessages.has(message.id)
+            || !shouldProjectPendingInput(candidate.status)
+            || !pendingInputPanel.insert(message)) return
           refreshPendingInput()
         })
         offInboxDiscarded = ctx.on('agent/inbox/discarded', ({ agent: candidate, message }) => {

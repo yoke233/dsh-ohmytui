@@ -51,6 +51,10 @@ if (args[0] === '-h' || args[0] === '--help') {
 const dsh = process.env.DSH_REAL || 'dsh'
 const spawnArgs = ['--profile', PROFILE, ...args]
 const isWin = process.platform === 'win32'
+const EXPERIMENTAL_WARNING_OPTION = '--disable-warning=ExperimentalWarning'
+const dshNodeOptions = process.env.NODE_OPTIONS?.includes(EXPERIMENTAL_WARNING_OPTION)
+  ? process.env.NODE_OPTIONS
+  : `${process.env.NODE_OPTIONS ?? ''} ${EXPERIMENTAL_WARNING_OPTION}`.trim()
 
 function fail(message, code = 1) {
   process.stderr.write(`omdsh: ${message}\n`)
@@ -234,6 +238,7 @@ function runGeneration(innerArgs) {
     }
     const child = run(dsh, ['--profile', PROFILE, ...innerArgs], {
       OMDSH_RELOAD_HANDOFF: handoffPath,
+      NODE_OPTIONS: dshNodeOptions,
     })
     child.on('error', (err) => {
       if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {

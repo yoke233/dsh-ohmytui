@@ -2,7 +2,7 @@
  * Long-session render cost probe: builds a synthetic transcript (messages,
  * tool cards, todo panel) and measures full re-renders — the per-frame cost
  * the differential renderer pays after every event in a long session.
- * Run: node --experimental-transform-types scripts/perf-probe.ts
+ * Run: node --disable-warning=ExperimentalWarning --experimental-transform-types scripts/perf-probe.ts
  */
 import { Container, visibleWidth } from '@earendil-works/pi-tui'
 import { createPalette, markdownTheme } from '../src/theme.ts'

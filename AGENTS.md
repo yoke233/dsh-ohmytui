@@ -32,7 +32,7 @@ pnpm run prepare
 运行单个测试文件：
 
 ```powershell
-pnpm exec node --test --experimental-transform-types "tests/<name>.spec.ts"
+pnpm exec node --disable-warning=ExperimentalWarning --test --experimental-transform-types "tests/<name>.spec.ts"
 ```
 
 ## 变更与验证

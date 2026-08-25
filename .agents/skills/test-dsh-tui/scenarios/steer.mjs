@@ -63,7 +63,7 @@ export async function run(tui) {
       "  ctx.on('session/event', (session, event) => {",
       "    if (event.type !== 'user/message') return",
       "    const text = event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')",
-      "    if (!text.includes('STEER_VISIBLE_TOKEN')) return",
+      "    if (!text.includes('STEER_EDIT_ONE') || !text.includes('STEER_EDIT_TWO')) return",
       "    const turn = session.events.findLast(item => item.type === 'turn/start')?.data.turn",
       "    writeFileSync(join(process.env.DSH_HOME, 'steer-message-turn'), String(turn))",
       '  })',
@@ -77,15 +77,31 @@ export async function run(tui) {
   await tui.waitForOutput(/欢迎回来|Welcome back/, { timeoutMs: 30_000, label: 'welcome screen' })
   const pidBefore = tui.pid()
 
+  const idleSubmittedAt = Date.now()
   tui.submit('START_CONTROLLED_TURN')
+  await tui.waitForScreen('START_CONTROLLED_TURN', { timeoutMs: 500, label: 'immediate idle user bubble' })
+  const idlePreviewMs = Date.now() - idleSubmittedAt
   await tui.waitFor(() => existsSync(requestStarted), 15_000, 'first model request')
   await tui.waitForOutput('FIRST_STEP_WAITING', { timeoutMs: 15_000, label: 'running first step' })
 
-  tui.submit('STEER_VISIBLE_TOKEN')
-  await tui.waitForScreen('STEER_VISIBLE_TOKEN', { timeoutMs: 5_000, label: 'immediate steer preview' })
-  await tui.waitForScreen(/steer · (待处理|queued)/, { timeoutMs: 5_000, label: 'steer queue label' })
+  tui.submit('STEER_EDIT_ONE')
+  tui.submit('STEER_EDIT_TWO')
+  await tui.waitForScreen(/STEER_EDIT_ONE[\s\S]*STEER_EDIT_TWO/, { timeoutMs: 5_000, label: 'multiple steer previews' })
+  await tui.waitForScreen(/Steering:[\s\S]*Alt\+Up/, { timeoutMs: 5_000, label: 'steer queue edit hint' })
   if (existsSync(messageTurn)) throw new Error('steer reached the durable transcript before the blocked step was released')
+  const pendingScreen = await tui.screenText()
+  const idleOccurrences = pendingScreen.split('START_CONTROLLED_TURN').length - 1
+  if (idleOccurrences !== 1) throw new Error(`idle message rendered ${idleOccurrences} times instead of once`)
   const pending = await tui.snapshot('steer-pending')
+
+  tui.key('\x1b[1;3A')
+  await tui.waitFor(async () => {
+    const screen = await tui.screenText()
+    return screen.includes('STEER_EDIT_ONE') && screen.includes('STEER_EDIT_TWO') && !screen.includes('Steering:')
+  }, 5_000, 'Alt+Up merged queued messages into editor')
+  const editing = await tui.snapshot('steer-editing')
+  tui.key('\r')
+  await tui.waitForScreen('Steering:', { timeoutMs: 5_000, label: 'merged steer resubmitted' })
 
   writeFileSync(releaseRequest, '')
   await tui.waitFor(() => existsSync(messageTurn), 15_000, 'steer user/message event')
@@ -93,7 +109,7 @@ export async function run(tui) {
   await tui.waitForOutput('SECOND_STEP_OK', { timeoutMs: 15_000, label: 'second step response' })
   await tui.waitFor(async () => {
     const screen = await tui.screenText()
-    return screen.includes('STEER_VISIBLE_TOKEN') && !screen.includes('steer · 待处理') && !screen.includes('steer · queued')
+    return screen.includes('STEER_EDIT_ONE') && screen.includes('STEER_EDIT_TWO') && !screen.includes('Steering:')
   }, 10_000, 'durable steer transcript without pending label')
 
   const turn = Number(readFileSync(messageTurn, 'utf8'))
@@ -107,8 +123,11 @@ export async function run(tui) {
 
   return {
     ready: true,
+    idlePreviewMs,
+    idleMessageRenderedOnce: true,
     immediatePreviewVisible: true,
     pendingLabelVisible: true,
+    queuedMessagesMergedForEditing: true,
     steerStayedInTurn: turn === 1,
     secondStepReceivedSteer: true,
     processStayedLive: true,
@@ -116,6 +135,6 @@ export async function run(tui) {
     appliedPid,
     secondRequestPid,
     pidAfter,
-    screenshots: { pending, settled },
+    screenshots: { pending, editing, settled },
   }
 }

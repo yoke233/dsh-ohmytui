@@ -98,6 +98,7 @@ export type Messages = {
   helpPermission: string
   cmdPermission: string
   queuedSteer: string
+  queuedSteerEditHint: string
   queuedSteerOmitted: string
   // --- notices ------------------------------------------------------------
   noticeNoSessions: string
@@ -396,7 +397,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     cmdTheme: '查看或切换主题',
     helpPermission: '切换权限模式（沙箱 + 审批策略）',
     cmdPermission: '切换权限模式（沙箱 + 审批策略）',
-    queuedSteer: 'steer · 待处理（{count}）',
+    queuedSteer: 'Steering: ',
+    queuedSteerEditHint: '↳ Alt+Up 合并编辑全部待处理消息',
     queuedSteerOmitted: '… 省略较早的 {count} 条',
     noticeNoSessions: '没有持久化会话。',
     noticeSessionListFailed: '会话列表获取失败：{error}',
@@ -573,8 +575,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     settingsToolOutputLines: '工具输出行数',
     settingsDefaultMode: '默认模式',
     settingsMaxParallelToolCalls: '最大并行工具调用数',
-    settingsLeftPrompt: '左侧状态栏模板',
-    settingsRightPrompt: '底部状态栏模板',
+    settingsLeftPrompt: '底部信息栏模板',
+    settingsRightPrompt: '顶部右侧状态模板',
     settingsPromptHint: '输入提示词模板；留空恢复默认模板',
     settingsKeyTools: '工具卡切换快捷键',
     settingsKeyReasoning: '思考块开关快捷键',
@@ -690,7 +692,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     contextPreview: '{category} is estimated to use {tokens} tokens.',
     helpPermission: 'switch permission mode (sandbox + approval policy)',
     cmdPermission: 'Switch permission mode (sandbox + approval policy)',
-    queuedSteer: 'steer · queued ({count})',
+    queuedSteer: 'Steering: ',
+    queuedSteerEditHint: '↳ Alt+Up to edit all queued messages',
     queuedSteerOmitted: '… {count} earlier queued',
     noticeNoSessions: 'No persisted sessions.',
     noticeSessionListFailed: 'Session listing failed: {error}',
@@ -867,8 +870,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     settingsToolOutputLines: 'Tool output lines',
     settingsDefaultMode: 'Default mode',
     settingsMaxParallelToolCalls: 'Max parallel tool calls',
-    settingsLeftPrompt: 'Left status template',
-    settingsRightPrompt: 'Bottom status template',
+    settingsLeftPrompt: 'Bottom info template',
+    settingsRightPrompt: 'Top-right status template',
     settingsPromptHint: 'Enter a prompt template; leave blank to restore the default',
     settingsKeyTools: 'Tool card cycle key',
     settingsKeyReasoning: 'Reasoning toggle key',
