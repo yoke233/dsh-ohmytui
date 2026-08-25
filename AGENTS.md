@@ -41,6 +41,7 @@ pnpm exec node --disable-warning=ExperimentalWarning --test --experimental-trans
 - 修改可见 UI 行为时，覆盖相关宽度、边界或状态转换，并按 `.agents/skills/test-dsh-tui/SKILL.md` 判断是否需要真实 ConPTY 测试；纯文本快照不能证明字体或像素颜色。
 - 修改源码、构建入口、exports 或 `cordis.patch.yml` 后，运行 `pnpm run check` 和 `pnpm run prepare`；涉及真实 TUI/Profile 行为时再完成相应 live smoke。
 - 修改发布内容或版本时，完整阅读 `docs/PUBLISHING.md`，运行 `pnpm pack --dry-run`，并确认 tag 为 `v<package.version>`。
+- 用户要求提交并推送时，提交前运行一次 `pnpm run version:patch`，由包管理器递增 `package.json` 的 patch 版本；同一批变更只运行一次。除非用户同时要求发布，否则不要创建或推送 tag。
 - 不要提交 API key、会话数据、微信状态目录或真实凭据；保留测试运行器为每次 live run 创建的隔离 `DSH_HOME`。
 
 完成变更时，报告实际运行的测试与结果；区分源码测试、构建验证和打包后的真实终端测试。不要把未执行的 smoke 或发布检查描述为已通过。
