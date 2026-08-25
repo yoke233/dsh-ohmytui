@@ -79,6 +79,7 @@ import {
 import { parseTuiPromptTemplate } from './prompt.ts'
 import { createTranslator, type MessageKey, type Translator } from './i18n.ts'
 import { registerJobsCommand, summarizeActiveJobs } from './jobs.ts'
+import { shouldCancelRunningTurn } from './input.ts'
 import {
   FULL_ACCESS_REGISTRY_NAME,
   FULL_ACCESS_UI_NAME,
@@ -2787,6 +2788,7 @@ export class Tui extends Service {
         const rows = [
           palette.bold(palette.accent(t('helpShortcuts'))),
           '',
+          `${palette.dim('Esc')}  ${t('helpEscape')}`,
           `${palette.dim('Ctrl+C')}  ${t('helpCtrlC')}`,
           `${palette.dim('Ctrl+O')}  ${t('helpCtrlO')}`,
           `${palette.dim('Ctrl+R')}  ${t('helpCtrlR')}`,
@@ -3046,6 +3048,10 @@ export class Tui extends Service {
             return { consume: true }
           }
         }
+      }
+      if (shouldCancelRunningTurn(data, agent?.status, editor.focused)) {
+        agent?.cancel({ kind: 'user' })
+        return { consume: true }
       }
       if (matchesKey(data, 'ctrl+c')) {
         if (exitArmed) {

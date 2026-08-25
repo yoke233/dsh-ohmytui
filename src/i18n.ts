@@ -27,6 +27,7 @@ export type Messages = {
   headerTipBody: string
   // --- /help listing ------------------------------------------------------
   helpShortcuts: string
+  helpEscape: string
   helpCtrlC: string
   helpCtrlO: string
   helpCtrlR: string
@@ -328,6 +329,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     headerTip: '提示：',
     headerTipBody: '输入 /help 查看命令与快捷键。',
     helpShortcuts: '键盘快捷键',
+    helpEscape: '停止进行中的任务',
     helpCtrlC: '中断当前回合',
     helpCtrlO: '切换工具卡显示：折叠 → 展开 → 隐藏',
     helpCtrlR: '显示 / 隐藏思考块',
@@ -623,6 +625,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     headerTip: 'Tip:',
     headerTipBody: 'Use /help to discover the command surface.',
     helpShortcuts: 'Keyboard shortcuts',
+    helpEscape: 'stop the running task',
     helpCtrlC: 'interrupt the running turn',
     helpCtrlO: 'cycle tool cards: collapsed → expanded → hidden',
     helpCtrlR: 'toggle reasoning blocks',
