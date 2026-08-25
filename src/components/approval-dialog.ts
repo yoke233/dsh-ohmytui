@@ -55,14 +55,14 @@ export class ApprovalDialog implements Component {
     const tool = displayText(this.toolName)
     const reason = displayText(this.reason?.trim() || this.t('approvalReasonFallback'))
     const rows = [
-      ...wrapTextWithAnsi(this.palette.bold(this.palette.warning(this.t('approvalTool', { tool }))), bodyWidth),
+      ...wrapTextWithAnsi(this.palette.bold(this.palette.accent(this.t('approvalTool', { tool }))), bodyWidth),
       ...wrapTextWithAnsi(this.t('approvalReason', { reason }), bodyWidth),
       '',
       ...this.list.render(bodyWidth),
       '',
       ...wrapTextWithAnsi(this.palette.dim(this.t('approvalHint')), bodyWidth),
     ]
-    return frameBlock(rows, width, this.palette.warning, undefined, this.t('approvalTitle'))
+    return frameBlock(rows, width, this.palette.accent, undefined, this.t('approvalTitle'))
   }
 }
 
@@ -99,7 +99,7 @@ export function runApprovalFlow(
     try {
       handle = ui.showOverlay(
         new ApprovalDialog(toolName, reason, palette, t, finish),
-        { anchor: 'center', width: '80%', maxHeight: '85%' },
+        { anchor: 'bottom-center', width: '100%', maxHeight: '85%', margin: { bottom: 4 } },
       )
       ui.requestRender()
     } catch (error) {

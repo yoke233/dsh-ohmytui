@@ -84,6 +84,15 @@ export async function run(tui) {
   const popupScreen = await tui.screenText()
   if (!popupScreen.includes('approval_probe')) throw new Error('approval popup omitted the tool name')
   if (!popupScreen.includes('LIVE_APPROVAL_REASON')) throw new Error('approval popup omitted the reason')
+  const popupRows = popupScreen.split('\n')
+  const titleRow = popupRows.findIndex(row => /需要授权|Authorization required/.test(row))
+  if (titleRow < Math.floor(popupRows.length / 2)) {
+    throw new Error(`approval popup opened too high at row ${titleRow + 1} of ${popupRows.length}`)
+  }
+  const titleLine = popupRows[titleRow] ?? ''
+  if (!titleLine.startsWith('╭') || !titleLine.endsWith('╮')) {
+    throw new Error('approval popup did not span the full terminal width')
+  }
   const popup = await tui.snapshot('approval-popup')
 
   tui.key('\x1b')
@@ -100,6 +109,7 @@ export async function run(tui) {
     toolNameVisible: true,
     reasonVisible: true,
     escapeRejected: true,
+    popupInLowerHalf: true,
     processStayedLive: true,
     outcome,
     pidBefore,
