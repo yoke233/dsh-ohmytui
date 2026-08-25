@@ -952,16 +952,18 @@ export class Tui extends Service {
           // after an abort cannot keep appending to the interrupted step;
           // its rendered partial content stays in the transcript.
           assistantStream.end()
-          if (live && notify && event.data.reason.kind !== 'completed') {
-            const reason = event.data.reason
-            if (reason.kind === 'error') {
-              appendNotice(t('noticeTurnFailed', {
-                code: reason.error.code,
-                error: reason.error.message,
-              }), 'error')
-            } else {
-              appendNotice(t('noticeTurnEnded', { reason: reason.kind }), 'warning')
-            }
+          const reason = event.data.reason
+          if (reason.kind === 'error') {
+            const text = t('noticeTurnFailed', {
+              code: reason.error.code,
+              error: reason.error.message,
+            })
+            chat.addChild(new StaticCardComponent(
+              displayText(text).split('\n').map(row => palette.error(row)),
+              palette,
+            ))
+          } else if (live && notify && reason.kind !== 'completed') {
+            appendNotice(t('noticeTurnEnded', { reason: reason.kind }), 'warning')
           }
           break
         }

@@ -11,7 +11,7 @@ Test at the narrowest seam that proves the behavior, then use the packaged ConPT
 
 Every live run uses a uniquely named `DSH_HOME`; the supplied runner enforces this and removes successful runs. Built-in fixtures perform no model request and write only inside that temporary root. The runner isolates DSH state, not the operating system: custom scenarios are trusted code and can access the repository, network, and parent process environment.
 
-On PowerShell, name paths `$dshHome`; `$HOME` is a case-insensitive, read-only built-in. Install packed `.tgz` files in Windows test Profiles. A `file:D:/...` package spec can be resolved relative to the Profile and become an invalid mixed path.
+On PowerShell, name paths `$dshHome`; `$HOME` is a case-insensitive, read-only built-in. Install packed `.tgz` files in Windows test Profiles. A directory install becomes `link:`, which does not install bundle dependencies into the Profile root where Cordis resolves them; a `file:D:/...` spec can also become an invalid mixed path.
 
 ## Choose the test seam
 
@@ -65,6 +65,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/
 
 Failed runs are retained automatically and print their artifact directory.
 
+## Launcher/Profile bootstrap
+
+Changes to `scripts/omdsh.js` installation, update, or repair behavior need a launcher bootstrap acceptance run in addition to packaged ConPTY scenarios:
+
+1. Use a fresh isolated `DSH_HOME`; set `DSH_DEBUG=1` so `omdsh` completes bootstrap without leaving a TUI running.
+2. Assert the Profile records `dsh-omp-tui` as `file:<DSH_HOME>/profile-packages/tui/<package>.tgz`, not `link:` or a temporary path.
+3. Assert packages named directly by `cordis.patch.yml` resolve under `<DSH_HOME>/profiles/tui/node_modules`; the plugin's source-worktree `node_modules` is not evidence.
+4. Start the actual launcher in ConPTY and wait for the welcome screen, then stop its process tree. For a reported failure in the user's real Profile, repeat this final startup against that Profile after the isolated run passes.
+
+Completion criterion: the persistent tarball remains present, the assembled plugin tree reaches the welcome screen, and no bootstrap process remains.
+
+
 ## Custom scenarios
 
 When a built-in scenario does not cover the behavior, read [references/scenario-api.md](references/scenario-api.md), copy [scenarios/template.mjs](scenarios/template.mjs), and pass its path:
@@ -102,6 +114,8 @@ DSH_E2E=1 pnpm exec node --disable-warning=ExperimentalWarning --test --experime
 - Correct raw output but wrong current screen: assert with `screenText()` and inspect the saved snapshot; stale scrollback is not current UI state.
 - Input has no effect: use `submit()` for a line, `key()` for raw control sequences, and wait for the welcome screen before sending input.
 - Packaged import failure: check `package.json` exports, `cordis.patch.yml`, and prepare-build entries rather than source-only resolution.
+- `ERR_MODULE_NOT_FOUND` from the Profile root for a package named in `cordis.patch.yml`: inspect the `dsh-omp-tui` spec in the Profile's `package.json`. A `link:` spec is a broken bootstrap result; reinstall from a persistent packed `.tgz` and verify the dependency exists in the Profile root.
+- A Profile reinstall fails on a missing `file:` tarball for another plugin: repair that stale direct dependency first. Package archives referenced by Profile `package.json` must remain at their recorded paths.
 - PID changes: treat the test as failed even if the final command succeeds.
 - A Profile package is installed but absent after reload: inspect the temporary Profile's `package.json` and `dsh.profile.bundles`.
 

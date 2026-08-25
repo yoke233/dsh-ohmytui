@@ -102,6 +102,25 @@ function installedProfileVersion() {
     return undefined
   }
 }
+function profileRoot() {
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+  return path.join(dshHome, 'profiles', PROFILE)
+}
+
+function missingProfileDependencies() {
+  return Object.keys(ownPackageJson.dependencies ?? {}).filter(name =>
+    !fs.existsSync(path.join(profileRoot(), 'node_modules', ...name.split('/'), 'package.json')))
+}
+function profilePackageSpecifier() {
+  try {
+    const profile = JSON.parse(fs.readFileSync(path.join(profileRoot(), 'package.json'), 'utf8'))
+    return profile.dependencies?.[PACKAGE]
+  } catch {
+    return undefined
+  }
+}
+
+
 
 function compareVersions(a, b) {
   const aParts = a.split('-')[0].split('.').map(Number)
@@ -115,19 +134,49 @@ function compareVersions(a, b) {
   return 0
 }
 
-/** 用 dsh plugin add 把当前启动器目录安装/更新到 tui profile。 */
+/** 打包后安装，避免 pnpm 将 file:目录降为不安装依赖的 link:。 */
 function addToProfile() {
-  const runAdd = extraArgs => runSync(
-    dsh,
-    ['plugin', '--profile', PROFILE, 'add', ...extraArgs, `file:${packageRoot()}`],
-    { stdio: ['inherit', 'inherit', 'pipe'] },
-  )
-  let result = runAdd([])
-  if (result.status !== 0 && String(result.stderr).includes('ERR_PNPM_ADDING_TO_ROOT')) {
-    process.stderr.write('omdsh: pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT），带 -w 重试…\n')
-    result = runAdd(['-w'])
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omdsh-pack-'))
+  try {
+    const packed = runSync(
+      'pnpm',
+      ['pack', '--pack-destination', packDir],
+      { cwd: packageRoot(), stdio: ['ignore', 'inherit', 'pipe'] },
+    )
+    if (packed.status !== 0) return packed
+    const tarball = fs.readdirSync(packDir)
+      .filter(name => name.endsWith('.tgz'))
+      .map(name => path.join(packDir, name))[0]
+    if (tarball === undefined) {
+      return { status: 1, stderr: 'pnpm pack did not produce a .tgz archive' }
+    }
+    const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+    const packageCache = path.join(dshHome, 'profile-packages', PROFILE)
+    fs.mkdirSync(packageCache, { recursive: true })
+    const storedTarball = path.join(packageCache, path.basename(tarball))
+    fs.copyFileSync(tarball, storedTarball)
+    const linkedPackage = path.join(profileRoot(), 'node_modules', PACKAGE)
+    try {
+      if (fs.lstatSync(linkedPackage).isSymbolicLink()) {
+        fs.rmSync(linkedPackage, { recursive: true, force: true })
+      }
+    } catch {
+      // Fresh profiles have no installed package to unlink.
+    }
+    const runAdd = extraArgs => runSync(
+      dsh,
+      ['plugin', '--profile', PROFILE, 'add', ...extraArgs, storedTarball],
+      { stdio: ['inherit', 'inherit', 'pipe'] },
+    )
+    let result = runAdd([])
+    if (result.status !== 0 && String(result.stderr).includes('ERR_PNPM_ADDING_TO_ROOT')) {
+      process.stderr.write('omdsh: pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT），带 -w 重试…\n')
+      result = runAdd(['-w'])
+    }
+    return result
+  } finally {
+    fs.rmSync(packDir, { recursive: true, force: true })
   }
-  return result
 }
 
 function ensureProfile() {
@@ -158,7 +207,23 @@ function ensureProfile() {
     return
   }
 
-  if (installedVersion === ownVersion) return
+  const missingDependencies = missingProfileDependencies()
+  const linkedInstall = String(profilePackageSpecifier() ?? '').startsWith('link:')
+  if (installedVersion === ownVersion && missingDependencies.length === 0 && !linkedInstall) return
+  if (installedVersion === ownVersion) {
+    const reasons = [
+      ...linkedInstall ? ['当前安装是不会携带依赖的 link: 目录'] : [],
+      ...missingDependencies.length === 0 ? [] : [`缺少运行依赖 ${missingDependencies.join(', ')}`],
+    ]
+    process.stderr.write(
+      `omdsh: profile ${reasons.join('；')}，正在重新安装 ${PACKAGE}@${ownVersion}…\n`,
+    )
+    const result = addToProfile()
+    if (result.status !== 0) {
+      fail(`profile 依赖修复失败：${String(result.stderr || 'unknown error').trim()}`)
+    }
+    return
+  }
 
   if (compareVersions(installedVersion, ownVersion) > 0) {
     process.stderr.write(
@@ -174,7 +239,7 @@ function ensureProfile() {
   const result = addToProfile()
   if (result.status !== 0) {
     fail(
-      `自动更新失败。可稍后手工执行：dsh plugin --profile ${PROFILE} add file:${packageRoot()}`,
+      `自动更新失败。可稍后手工执行：pnpm pack 后运行 dsh plugin --profile ${PROFILE} add <tgz>`,
     )
   }
   process.stderr.write(`omdsh: profile 已更新为 v${installedProfileVersion() ?? ownVersion}。\n`)
