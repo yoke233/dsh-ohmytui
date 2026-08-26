@@ -47,4 +47,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-subprocess@0.1.1-rc.2'
 
 patchedDependencies:
-  '@earendil-works/pi-tui@0.80.7': patches/@earendil-works__pi-tui@0.80.7.patch
+  '@earendil-works/pi-tui@0.84.3': patches/@earendil-works__pi-tui@0.84.3.patch

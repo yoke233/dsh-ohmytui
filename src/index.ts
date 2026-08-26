@@ -14,13 +14,14 @@ import {
   Editor,
   ProcessTerminal,
   Spacer,
-  TUI,
+  TuiMainScreen,
   Text,
   matchesKey,
   visibleWidth,
   type Component,
   type EditorTheme,
   type SelectItem,
+  type TUI,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
 import type { Agent, AgentHandle, AgentStatus, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
@@ -436,7 +437,7 @@ export class Tui extends Service {
     // IMEs that preview pinyin/composition inline depend on it being shown there.
     // Match Pi's native inline rendering: let content shrink without forcing a
     // viewport-wide clear, so the terminal keeps its normal scrollback flow.
-    const ui = new TUI(terminal, true)
+    const ui = new TuiMainScreen(terminal, true)
 
     // The agent is published asynchronously on the resume path (persistence
     // load), so agent-dependent setup runs in mount() once it is live.

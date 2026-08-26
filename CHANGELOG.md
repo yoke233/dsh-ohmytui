@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 升级开发工具链到 TypeScript 7、Node.js 26 类型定义和 `@earendil-works/pi-tui` 0.84.3；将主屏构造迁移到 `TuiMainScreen`，并把无边框提示符编辑器补丁重放到新版 pi-tui。
 - 支持 dsh 官方 `tool/code-dispatch-start` / `tool/code-dispatch` 子调用协议：`repl` 与 `run_code` 内的工具调用按 parent/sub-call id 嵌套显示，并通过当前工具的 `presentCall` / `presentResult` 复用标准 diff 等视图；`apply_patch` 与 `edit` 不再退化为一整块 REPL 文本。
 - 新增 Orca pane 内的 agent 状态上报（OSC 9999）：Orca 左侧 workspace 列表现在会显示这个会话那一行（`● Working – DSH` / `✓ Done – DSH`）。新增 `src/orca-status.ts`（序列化 + 状态机，字节直写 stdout 绕开差分渲染器），由 `ORCA_PANE_KEY` 门禁，普通终端下完全静默；上报 `prompt` / `toolName` / `toolInput` / `lastAssistantMessage` / `model` / `interrupted` / `sessionBoundary`，权限确认与提问统一上报 `waiting` 且必带在批准什么，选项式提问附 `interactivePrompt` 让 Orca 渲染成可点击卡片。新增 `tests/orca-status.spec.ts` 与 ConPTY 验收场景 `orca-status`，文档见 `docs/orca.md`
 - 修复模型请求网络异常、上游 429、重试耗尽等回合错误仅在 notice 区域显示的问题：错误现在作为持久卡片进入 transcript 列表，并在会话重绘时按原顺序恢复。新增打包后 ConPTY 场景 `error-persistence`，验证错误位于后续回合之前且 6 秒后仍在当前界面

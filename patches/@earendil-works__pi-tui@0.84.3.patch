@@ -1,5 +1,5 @@
 diff --git a/dist/components/editor.d.ts b/dist/components/editor.d.ts
-index a6fedc9e3b36d066e34860d040db6df47d88c432..9d896aad93b1bc60da04ea0d6dbb3c7253fe419a 100644
+index a6fedc9e3b36d066e34860d040db6df47d88c432..f0b20eb87686215d1d1a54274a7b1ebdf4030ef1 100644
 --- a/dist/components/editor.d.ts
 +++ b/dist/components/editor.d.ts
 @@ -21,7 +21,7 @@ export interface TextChunk {
@@ -38,7 +38,7 @@ index a6fedc9e3b36d066e34860d040db6df47d88c432..9d896aad93b1bc60da04ea0d6dbb3c72
       * Add a prompt to history for up/down arrow navigation.
       * Called after successful submission.
 diff --git a/dist/components/editor.js b/dist/components/editor.js
-index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb5b1d30df 100644
+index 4786b46932b65785cfbd2304610ca77ccead910a..190c408657e2a9bada69d23dedfd0e69d5f0cd46 100644
 --- a/dist/components/editor.js
 +++ b/dist/components/editor.js
 @@ -79,7 +79,7 @@ function segmentWithMarkers(text, baseSegmenter, validIds) {
@@ -106,7 +106,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
              chunkStart = charIndex + last.startIndex;
              currentWidth = visibleWidth(last.text);
              wrapOppIndex = -1;
-@@ -189,8 +198,12 @@ export class Editor {
+@@ -199,8 +208,12 @@ export class Editor {
      tui;
      theme;
      paddingX = 0;
@@ -119,7 +119,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
      // Vertical scrolling support
      scrollOffset = 0;
      // Border color (can be changed dynamically)
-@@ -243,9 +256,29 @@ export class Editor {
+@@ -253,9 +266,29 @@ export class Editor {
          this.borderColor = theme.borderColor;
          const paddingX = options.paddingX ?? 0;
          this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
@@ -149,7 +149,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
      /** Set of currently valid paste IDs, for marker-aware segmentation. */
      validPasteIds() {
          return new Set(this.pastes.keys());
-@@ -338,7 +371,7 @@ export class Editor {
+@@ -348,7 +381,7 @@ export class Editor {
              }
          }
          else {
@@ -158,7 +158,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
          }
      }
      exitHistoryBrowsing() {
-@@ -364,14 +397,17 @@ export class Editor {
+@@ -374,14 +407,17 @@ export class Editor {
          const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
          const paddingX = Math.min(this.paddingX, maxPadding);
          const contentWidth = Math.max(1, width - paddingX * 2);
@@ -179,36 +179,27 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
          // Calculate max visible lines: 30% of terminal height, minimum 5 lines
          const terminalRows = this.tui.terminal.rows;
          const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
-@@ -396,16 +432,22 @@ export class Editor {
+@@ -406,10 +442,16 @@ export class Editor {
          const rightPadding = leftPadding;
          // Render top border (with scroll indicator if scrolled down)
          if (this.scrollOffset > 0) {
--            const indicator = `─── ↑ ${this.scrollOffset} more `;
--            const remaining = width - visibleWidth(indicator);
--            if (remaining >= 0) {
--                result.push(this.borderColor(indicator + "─".repeat(remaining)));
+-            const border = createScrollBorder("↑", this.scrollOffset, width);
+-            result.push(this.borderColor(border));
 +            if (this.frame === "none") {
 +                const indicator = `${" ".repeat(this.promptWidth)}↑ ${this.scrollOffset} more`;
 +                result.push(`${leftPadding}${this.borderColor(indicator)}${" ".repeat(Math.max(0, contentWidth - visibleWidth(indicator)))}${rightPadding}`);
-             }
-             else {
--                result.push(this.borderColor(truncateToWidth(indicator, width)));
-+                const indicator = `─── ↑ ${this.scrollOffset} more `;
-+                const remaining = width - visibleWidth(indicator);
-+                if (remaining >= 0) {
-+                    result.push(this.borderColor(indicator + "─".repeat(remaining)));
-+                }
-+                else {
-+                    result.push(this.borderColor(truncateToWidth(indicator, width)));
-+                }
-             }
++            }
++            else {
++                const border = createScrollBorder("↑", this.scrollOffset, width);
++                result.push(this.borderColor(border));
++            }
          }
 -        else {
 +        else if (this.frame === "horizontal") {
              result.push(horizontal.repeat(width));
          }
          // Render each visible layout line
-@@ -413,7 +455,19 @@ export class Editor {
+@@ -417,7 +459,19 @@ export class Editor {
          // hardware cursor for IME candidate-window placement even while
          // autocomplete (e.g. slash-command menu) is visible.
          const emitCursorMarker = this.focused;
@@ -229,7 +220,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
              let displayText = layoutLine.text;
              let lineVisibleWidth = visibleWidth(layoutLine.text);
              let cursorInPadding = false;
-@@ -439,34 +493,41 @@ export class Editor {
+@@ -443,33 +497,40 @@ export class Editor {
                      displayText = before + marker + cursor;
                      lineVisibleWidth = lineVisibleWidth + 1;
                      // If cursor overflows content width into the padding, flag it
@@ -250,17 +241,15 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
          // Render bottom border (with scroll indicator if more content below)
          const linesBelow = layoutLines.length - (this.scrollOffset + visibleLines.length);
          if (linesBelow > 0) {
--            const indicator = `─── ↓ ${linesBelow} more `;
--            const remaining = width - visibleWidth(indicator);
--            result.push(this.borderColor(indicator + "─".repeat(Math.max(0, remaining))));
+-            const border = createScrollBorder("↓", linesBelow, width);
+-            result.push(this.borderColor(border));
 +            if (this.frame === "none") {
 +                const indicator = `${" ".repeat(this.promptWidth)}↓ ${linesBelow} more`;
 +                result.push(`${leftPadding}${this.borderColor(indicator)}${" ".repeat(Math.max(0, contentWidth - visibleWidth(indicator)))}${rightPadding}`);
 +            }
 +            else {
-+                const indicator = `─── ↓ ${linesBelow} more `;
-+                const remaining = width - visibleWidth(indicator);
-+                result.push(this.borderColor(indicator + "─".repeat(Math.max(0, remaining))));
++                const border = createScrollBorder("↓", linesBelow, width);
++                result.push(this.borderColor(border));
 +            }
          }
 -        else {
@@ -281,7 +270,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
              }
          }
          return result;
-@@ -552,15 +613,19 @@ export class Editor {
+@@ -555,15 +616,19 @@ export class Editor {
              if (kb.matches(data, "tui.select.confirm")) {
                  const selected = this.autocompleteList.getSelectedItem();
                  if (selected && this.autocompleteProvider) {
@@ -303,7 +292,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
                      }
                      else {
                          this.cancelAutocomplete();
-@@ -726,7 +791,7 @@ export class Editor {
+@@ -740,7 +805,7 @@ export class Editor {
              this.insertCharacter(data);
          }
      }
@@ -312,7 +301,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
          const layoutLines = [];
          if (this.state.lines.length === 0 || (this.state.lines.length === 1 && this.state.lines[0] === "")) {
              // Empty editor
-@@ -734,6 +799,7 @@ export class Editor {
+@@ -748,6 +813,7 @@ export class Editor {
                  text: "",
                  hasCursor: true,
                  cursorPos: 0,
@@ -320,7 +309,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
              });
              return layoutLines;
          }
-@@ -749,18 +815,20 @@ export class Editor {
+@@ -763,18 +829,20 @@ export class Editor {
                          text: line,
                          hasCursor: true,
                          cursorPos: this.state.cursorCol,
@@ -342,7 +331,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
                  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
                      const chunk = chunks[chunkIndex];
                      if (!chunk)
-@@ -796,12 +864,14 @@ export class Editor {
+@@ -810,12 +878,14 @@ export class Editor {
                              text: chunk.text,
                              hasCursor: true,
                              cursorPos: adjustedCursorPos,
@@ -357,7 +346,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
                          });
                      }
                  }
-@@ -1439,7 +1509,7 @@ export class Editor {
+@@ -1457,7 +1527,7 @@ export class Editor {
       * - startCol: starting column in the logical line
       * - length: length of this visual line segment
       */
@@ -366,7 +355,7 @@ index 6c03aeec4148571558713e885ac7f7df18a511bc..0d9f355869fe0b7fad5048e1b7d525eb
          const visualLines = [];
          for (let i = 0; i < this.state.lines.length; i++) {
              const line = this.state.lines[i] || "";
-@@ -1453,7 +1523,7 @@ export class Editor {
+@@ -1471,7 +1541,7 @@ export class Editor {
              }
              else {
                  // Line needs wrapping - use word-aware wrapping
