@@ -56,7 +56,7 @@ export async function run(tui) {
   await tui.waitForScreen(/Apply Patch.*2 files \(\+2 -1\).*Ctrl\+O to expand/, { timeoutMs: 20_000, label: 'compact patch summary' })
   const expandOffset = tui.mark()
   tui.key('\x0f')
-  await tui.waitForOutput(/├─── Patch/, { since: expandOffset, timeoutMs: 20_000, label: 'expanded themed patch' })
+  await tui.waitForOutput(/Update src\/a\.ts/, { since: expandOffset, timeoutMs: 20_000, label: 'expanded themed patch' })
   const expandedOutput = tui.plainOutput(expandOffset)
   for (const expected of ['Update src/a.ts', '- const value = 1', '+ const value = 2', 'Add src/b.ts']) {
     if (!expandedOutput.includes(expected)) throw new Error(`Expanded patch omitted: ${expected}`)

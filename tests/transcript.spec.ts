@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { performance } from 'node:perf_hooks'
 import { CombinedAutocompleteProvider, Container, Editor, visibleWidth } from '@earendil-works/pi-tui'
 import { createPalette, markdownTheme } from '../src/theme.ts'
 import { createTranslator } from '../src/i18n.ts'
@@ -95,13 +96,106 @@ describe('transcript components respect the render width', () => {
     } as never)
     const collapsed = render(pending, 48)
     assert.equal(collapsed.length, 2)
-    assert.match(collapsed[1]!, /• Read .*src\/index\.ts.*Ctrl\+O to expand/)
+    assert.match(collapsed[1]!, /✓ Read .*src\/index\.ts.*Ctrl\+O to expand/)
     pending.setVisibility('expanded')
     const settled = render(pending, 48)
-    assert.match(settled[1]!, /^╭─── • Read /)
-    assert.match(settled[2]!, /^├─── Input /)
-    assert.match(settled[3]!, /src\/index\.ts/)
-    assert.match(settled[4]!, /^├─── Output /)
+    assert.match(settled[1]!, /^✓ Read .*Ctrl\+O to collapse/)
+    assert.equal(settled[2], '')
+    assert.match(settled[3]!, /^  line one/)
+    assert.equal(settled.some(row => row.includes('› src/index.ts')), false)
+    assert.ok(settled.every(row => !/[╭╮╰╯├┤│]/.test(row)))
+  })
+
+  it('uses accessible, color-coded glyphs for every tool lifecycle state', () => {
+    const themed = createPalette(true, 'dark', true)
+    const pending = new ToolCardComponent('read', '{"path":"src/index.ts"}', 6, themed)
+    assert.ok(render(pending, 64).some(row => row.includes(themed.warning(''))))
+
+    const completed = new ToolCardComponent('read', '{}', 6, themed)
+    completed.updateDispatch([{ type: 'text', text: 'done' }], false)
+    assert.ok(render(completed, 64).some(row => row.includes(themed.success('✓'))))
+
+    const failed = new ToolCardComponent('read', '{}', 6, themed)
+    failed.updateDispatch([{ type: 'text', text: 'failed' }], true)
+    assert.ok(render(failed, 64).some(row => row.includes(themed.error(''))))
+
+    const interrupted = new ToolCardComponent('read', '{}', 6, themed)
+    interrupted.updateResult({
+      message: {
+        content: [{ content: [{ type: 'text', text: 'aborted' }], isError: true }],
+      },
+      error: { name: 'HarnessError', code: 'ABORTED' },
+    } as never)
+    assert.ok(render(interrupted, 64).some(row => row.includes(themed.warning('■'))))
+  })
+
+  it('keeps collapsed large diff and output rendering bounded, then expands exact content', () => {
+    const lineCount = 30_000
+    const patchLines = Array.from({ length: lineCount }, (_, index) => `+const value${index} = ${index}`)
+    const outputLines = Array.from({ length: lineCount }, (_, index) => `output ${index}`)
+    const card = new ToolCardComponent('apply_patch', JSON.stringify({
+      patch: ['*** Begin Patch', '*** Update File: src/large.ts', '@@', ...patchLines, '*** End Patch'].join('\n'),
+    }), 6, palette)
+    card.updateDispatch([{ type: 'text', text: outputLines.join('\n') }], false)
+
+    const collapsedStart = performance.now()
+    const collapsed = render(card, 100)
+    const collapsedMs = performance.now() - collapsedStart
+    assert.equal(collapsed.length, 2)
+    assert.equal(collapsed.some(row => row.includes('value29999') || row.includes('output 29999')), false)
+
+    card.setVisibility('expanded')
+    const expandedStart = performance.now()
+    const expanded = render(card, 100)
+    const expandedMs = performance.now() - expandedStart
+    assert.ok(expanded.some(row => row.includes('const value0 = 0')))
+    assert.ok(expanded.some(row => row.includes('const value29999 = 29999')))
+    assert.ok(expanded.some(row => row.includes('output 0')))
+    assert.ok(expanded.some(row => row.includes('output 29999')))
+    assert.ok(
+      collapsedMs * 8 < expandedMs,
+      `collapsed ${collapsedMs.toFixed(1)}ms should be at least 8x cheaper than expanded ${expandedMs.toFixed(1)}ms`,
+    )
+  })
+
+  it('reads only a bounded prefix of structured diff metadata while collapsed', () => {
+    const diffs = new Proxy(Array.from({ length: 100 }, (_, index) => ({
+      path: `src/${index}.ts`,
+      oldText: 'before',
+      newText: 'after',
+    })), {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/.test(property) && Number(property) >= 3) {
+          throw new Error(`collapsed render eagerly read diff ${property}`)
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const card = new ToolCardComponent('edit', '{}', 6, palette, {
+      card: 'diff',
+      title: 'Large edit',
+      diffs,
+    })
+    card.updateDispatch([{ type: 'text', text: 'done' }], false)
+
+    const collapsed = render(card, 100).join('\n')
+    assert.ok(collapsed.includes('src/0.ts, src/1.ts, src/2.ts, … +97 more'))
+  })
+
+  it('does not parse or expose a large code argument until expansion', () => {
+    const finalMarker = 'const finalMarker = true'
+    const code = `${'const repeated = 1\n'.repeat(1_000)}${finalMarker}`
+    const argumentsJson = JSON.stringify({ code })
+    const card = new ToolCardComponent('run_code', argumentsJson, 6, palette)
+    card.updateDispatch([{ type: 'text', text: 'done' }], false)
+
+    const collapsed = render(card, 80).join('\n')
+    assert.ok(collapsed.includes(`${argumentsJson.length.toLocaleString('en-US')} chars input`))
+    assert.equal(collapsed.includes(finalMarker), false)
+
+    card.setVisibility('expanded')
+    const expanded = render(card, 80).join('\n')
+    assert.ok(expanded.includes(finalMarker))
   })
 
   it('toggles tool cards only between collapsed and expanded', () => {
@@ -115,6 +209,16 @@ describe('transcript components respect the render width', () => {
     assert.deepEqual(render(bash, 48), ['', ' Bash', '  ls -la'])
     const search = new ToolCardComponent('web_search', JSON.stringify({ query: 'dsh performance' }), 6, palette)
     assert.deepEqual(render(search, 48), ['', ' Web Search', '  dsh performance'])
+  })
+
+  it('does not repeat a short single-line argument below the expanded summary', () => {
+    const card = new ToolCardComponent('grep', JSON.stringify({ pattern: "'TODO'|pattern: '|key: 'value'" }), 6, palette)
+    card.updateDispatch([{ type: 'text', text: 'Found 1 match' }], false)
+    card.setVisibility('expanded')
+
+    const rows = render(card, 100)
+    assert.equal(rows.filter(row => row.includes("'TODO'|pattern: '|key: 'value'")).length, 1)
+    assert.ok(rows.some(row => row.includes('Found 1 match')))
   })
 
   it('falls back to Unknown for an empty tool name', () => {
@@ -146,8 +250,8 @@ describe('transcript components respect the render width', () => {
     for (const row of rows) assert.ok(visibleWidth(row) <= 40, `width=${visibleWidth(row)} row=${JSON.stringify(row)}`)
     const inputRows = rows.filter(row => row.includes('aaa'))
     assert.ok(inputRows.length >= 2, `expected wrapped input rows, got ${JSON.stringify(rows)}`)
-    assert.match(inputRows[0]!, /echo a+/)
-    assert.match(inputRows[1]!, /^│ a+/)
+    assert.ok(inputRows.some(row => /^  › echo a+/.test(row)))
+    assert.ok(inputRows.some(row => /^    a+/.test(row)))
   })
 
   it('shows str_replace_editor edit content in the input section', () => {
@@ -182,13 +286,13 @@ describe('transcript components respect the render width', () => {
     } as never)
     card.setVisibility('expanded')
     const rows = render(card, 60)
-    assert.match(rows[1]!, /^╭─── • Str Replace Editor /)
-    assert.match(rows[2]!, /^├─── Input /)
-    assert.match(rows[3]!, /path: D:\/src\/a\.ts/)
-    assert.match(rows[4]!, /^├─── Diff /)
-    assert.match(rows[5]!, /^│ - old line/)
-    assert.match(rows[6]!, /^│ \+ new line/)
-    assert.match(rows[7]!, /^├─── Output /)
+    assert.match(rows[1]!, /^✓ Str Replace Editor /)
+    assert.match(rows[2]!, /^  › path: D:\/src\/a\.ts/)
+    assert.equal(rows[3], '')
+    assert.match(rows[4]!, /^  - old line/)
+    assert.match(rows[5]!, /^  \+ new line/)
+    assert.equal(rows[6], '')
+    assert.match(rows[7]!, /^  done/)
   })
 
   it('renders raw apply_patch arguments as a themed file-grouped patch', () => {
@@ -250,9 +354,8 @@ describe('transcript components respect the render width', () => {
     root.setVisibility('expanded')
 
     const rows = render(root, 72)
-    assert.equal(rows.some(row => /• Repl/.test(row)), false)
-    assert.ok(rows.some(row => /• Apply patch/.test(row)))
-    assert.ok(rows.some(row => /├─── Diff/.test(row)))
+    assert.equal(rows.some(row => /✓ Repl/.test(row)), false)
+    assert.ok(rows.some(row => /✓ Apply patch/.test(row)))
     assert.ok(rows.some(row => /src\/a\.ts/.test(row)))
     assert.ok(rows.some(row => /- const oldValue = 1/.test(row)))
     assert.ok(rows.some(row => /\+ const newValue = 2/.test(row)))
@@ -287,10 +390,10 @@ describe('transcript components respect the render width', () => {
     root.setVisibility('expanded')
 
     const rows = render(root, 72)
-    assert.ok(rows.some(row => /• Edit/.test(row)))
+    assert.ok(rows.some(row => /✓ Edit/.test(row)))
     assert.ok(rows.some(row => /- before/.test(row)))
     assert.ok(rows.some(row => /\+ after/.test(row)))
-    assert.equal(rows.some(row => /• Apply patch/.test(row)), false)
+    assert.equal(rows.some(row => /✓ Apply patch/.test(row)), false)
   })
 
   it('sanitizes tabs and controls in str_replace_editor call arguments', () => {

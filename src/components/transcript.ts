@@ -17,7 +17,7 @@ import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
-import { frameBlock, frameBlockSections, gradientLogo, type MarkdownTheme, type Palette } from '../theme.ts'
+import { frameBlock, gradientLogo, type MarkdownTheme, type Palette } from '../theme.ts'
 import type { Translator } from '../i18n.ts'
 import { contentText, parseArguments } from './content.ts'
 import { displayText } from './text.ts'
@@ -29,6 +29,10 @@ const DSH_LOGO = [
   '██║  ██║╚════██║██╔══██║',
   '██████╔╝███████║██║  ██║',
 ]
+
+const COLLAPSED_TEXT_SCAN_LIMIT = 16_384
+const COLLAPSED_BLOCK_SCAN_LIMIT = 64
+const COLLAPSED_DIFF_PATH_LIMIT = 3
 
 /** Cache rendered rows for a component until its state or width changes. */
 /** Raw event budget retained when a persisted transcript is first resumed. */
@@ -83,6 +87,11 @@ function cachedRender(
   if (cache !== undefined && cache.key === key) return { cache, lines: cache.lines }
   const lines = compute()
   return { cache: { key, lines }, lines }
+}
+
+/** Format a non-negative count without paying Intl initialization cost in a render path. */
+function formatCount(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
 function fitWidth(text: string, width: number): string {
@@ -597,8 +606,7 @@ function applyPatchSummary(argumentsJson: string): string | undefined {
 }
 
 /** Render model-facing apply_patch syntax as a themed, file-grouped diff. */
-function applyPatchSections(argumentsJson: string, palette: Palette, width: number): { title: string; lines: string[] }[] {
-  const files = parseApplyPatch(argumentsJson)
+function applyPatchSections(files: readonly ParsedPatchFile[], palette: Palette, width: number): { title: string; lines: string[] }[] {
   if (files.length === 0) return []
   const bodyWidth = Math.max(1, width - 6)
   const rows: string[] = []
@@ -654,6 +662,20 @@ function callViewDetail(view: ToolCallView | undefined): string | undefined {
   return unique.length === 0 ? undefined : unique.join(', ')
 }
 
+/** Bound collapsed diff metadata work to a few paths regardless of diff size. */
+function compactCallViewDetail(view: ToolCallView | ToolResultView | undefined): string | undefined {
+  if (view?.card !== 'diff') return undefined
+  const paths = 'locations' in view && view.locations !== undefined ? view.locations : view.diffs
+  const visible: string[] = []
+  for (let index = 0; index < Math.min(paths.length, COLLAPSED_DIFF_PATH_LIMIT); index++) {
+    const path = displayText(paths[index]!.path)
+    if (!visible.includes(path)) visible.push(path)
+  }
+  if (visible.length === 0) return undefined
+  const hidden = Math.max(0, paths.length - COLLAPSED_DIFF_PATH_LIMIT)
+  return visible.join(', ') + (hidden === 0 ? '' : `, … +${hidden} more`)
+}
+
 /**
  * The concrete input content shown under the tool title and above `Output`:
  * a shell command, a path, a query, or the first meaningful string argument.
@@ -683,11 +705,16 @@ export function toolDetail(name: string, argumentsJson: string): string | undefi
  * become rounded output blocks with a titled `Output` separator.
  */
 export class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean; view?: ToolResultView } | undefined
+  private result: {
+    content: ContentBlock[]
+    status: 'completed' | 'failed' | 'interrupted'
+    view?: ToolResultView
+  } | undefined
   private readonly subCalls: ToolCardComponent[] = []
   private parent: ToolCardComponent | undefined
   private visibility: ToolCardVisibility = 'collapsed'
   private renderCache: RenderCache | undefined
+  private parsedPatchFiles: ParsedPatchFile[] | undefined
 
   constructor(
     private readonly name: string,
@@ -703,12 +730,21 @@ export class ToolCardComponent implements Component {
     view?: ToolResultView,
   ): void {
     const result = event.message.content[0]
-    this.updateDispatch(result.content, result.isError === true, view)
+    const interrupted = event.error?.code === 'ABORTED' || event.error?.code === 'ABORTED_BEFORE_DISPATCH'
+    this.setResult(result.content, interrupted ? 'interrupted' : result.isError === true ? 'failed' : 'completed', view)
   }
 
   /** Record one settled official Code Dispatch child result. */
   updateDispatch(content: readonly ContentBlock[], isError: boolean, view?: ToolResultView): void {
-    this.result = { content: [...content], isError, ...(view === undefined ? {} : { view }) }
+    this.setResult(content, isError ? 'failed' : 'completed', view)
+  }
+
+  private setResult(
+    content: readonly ContentBlock[],
+    status: 'completed' | 'failed' | 'interrupted',
+    view?: ToolResultView,
+  ): void {
+    this.result = { content: [...content], status, ...(view === undefined ? {} : { view }) }
     this.invalidate()
   }
 
@@ -734,7 +770,7 @@ export class ToolCardComponent implements Component {
   }
 
   render(width: number): string[] {
-    const cacheKey = `${width}|${this.visibility}|${this.result?.isError ?? ''}|${this.subCalls.length}`
+    const cacheKey = `${width}|${this.visibility}|${this.result?.status ?? ''}|${this.subCalls.length}`
     const cached = cachedRender(this.renderCache, cacheKey, () => {
       const own = this.renderUncached(width)
       if (this.subCalls.length === 0) return own
@@ -744,7 +780,7 @@ export class ToolCardComponent implements Component {
       // REPL is only the dispatch wrapper once concrete child tools exist. Keep
       // the more informative child cards and avoid showing the same operation
       // twice; a failed wrapper remains visible so its error is not swallowed.
-      if (this.name === 'repl' && this.result?.isError !== true) return children
+      if (this.name === 'repl' && this.result?.status === 'completed') return children
       return [...own, ...children]
     })
     this.renderCache = cached.cache
@@ -753,10 +789,10 @@ export class ToolCardComponent implements Component {
 
   private renderUncached(width: number): string[] {
     const title = displayText(this.result?.view?.title ?? this.callView?.title ?? toolLabel(this.name))
-    const detail = callViewDetail(this.callView) ?? toolDetail(this.name, this.argumentsJson)
     if (this.result === undefined) {
       const pending = `${this.palette.warning('')} ${this.palette.toolTitle(title)}`
       const rows = ['', truncateToWidth(pending, Math.max(1, width), '')]
+      const detail = this.compactDetail()
       if (detail !== undefined) {
         for (const line of detail.split('\n').flatMap(line => wrapToWidth(line, Math.max(1, width - 2)))) {
           rows.push(truncateToWidth(`  ${this.palette.muted(line)}`, Math.max(1, width), ''))
@@ -765,30 +801,22 @@ export class ToolCardComponent implements Component {
       return rows
     }
 
-    const isError = this.result.isError
-    const statusColor = isError ? this.palette.error : this.palette.dim
-    const statusBg = isError ? this.palette.toolErrorBg : this.palette.toolSuccessBg
-    const glyph = isError ? '' : '•'
-    const header = isError
-      ? this.palette.error(`${glyph} ${title}`)
-      : `${this.palette.dim(glyph)} ${this.palette.toolTitle(title)}`
-    const output = displayText(contentText(this.result.content).trim())
-    let outputLines = output === '' ? [this.palette.dim('(no output)')] : output.split('\n')
+    const statusColor = this.result.status === 'completed'
+      ? this.palette.success
+      : this.result.status === 'interrupted' ? this.palette.warning : this.palette.error
+    const glyph = this.result.status === 'completed' ? '✓' : this.result.status === 'interrupted' ? '■' : ''
+    const header = `${statusColor(glyph)} ${this.palette.toolTitle(title)}`
     if (this.visibility === 'collapsed') {
-      const compactDetail = detail?.replace(/\n+/g, ' ')
-      const outputSize = outputLines.length > this.maxOutputLines ? `${outputLines.length} lines` : undefined
-      const summary = [
-        header,
-        compactDetail === undefined ? undefined : this.palette.muted(`· ${compactDetail}`),
-        outputSize === undefined ? undefined : this.palette.dim(`· ${outputSize}`),
-      ].filter((part): part is string => part !== undefined).join(' ')
-      const expandHint = this.palette.dim(' · (Ctrl+O to expand)')
-      const available = Math.max(1, width)
-      if (visibleWidth(expandHint) >= available) return ['', truncateToWidth(summary, available, '')]
-      return ['', `${truncateToWidth(summary, available - visibleWidth(expandHint), '')}${expandHint}`]
+      return ['', this.summaryRow(width, header, 'expand')]
     }
+    const output = displayText(contentText(this.result.content).trim())
+    const outputLines = output === ''
+      ? [this.palette.dim('(no output)')]
+      : output.split('\n')
+        .flatMap(line => wrapToWidth(line, Math.max(1, width - 4)))
+        .map(line => this.palette.toolOutput(line))
     const sections: { title: string; lines: string[] }[] = []
-    const presentedDiff = isError
+    const presentedDiff = this.result.status !== 'completed'
       ? []
       : diffViewSections(this.result.view ?? this.callView, this.palette, width)
     const editorSections = presentedDiff.length > 0
@@ -798,25 +826,119 @@ export class ToolCardComponent implements Component {
         : []
     const patchSections = presentedDiff.length > 0 || this.name !== 'apply_patch'
       ? []
-      : applyPatchSections(this.argumentsJson, this.palette, width)
+      : applyPatchSections(this.patchFiles(), this.palette, width)
     if (presentedDiff.length > 0) {
       sections.push(...presentedDiff)
     } else if (patchSections.length > 0) {
       sections.push(...patchSections)
     } else if (editorSections.length > 0) {
       sections.push(...editorSections)
-    } else if (detail !== undefined) {
-      const inputLines = detail
-        .split('\n')
-        .flatMap(line => wrapToWidth(line, Math.max(1, width - 4)))
-        .map(line => this.palette.muted(line))
-      sections.push({ title: 'Input', lines: inputLines })
+    } else {
+      const detail = callViewDetail(this.callView) ?? toolDetail(this.name, this.argumentsJson)
+      if (detail !== undefined && !this.detailFitsSummary(width, header, detail)) {
+        const inputLines = detail
+          .split('\n')
+          .flatMap(line => wrapToWidth(line, Math.max(1, width - 4)))
+          .map(line => this.palette.muted(line))
+        sections.push({ title: 'Input', lines: inputLines })
+      }
     }
-    sections.push({ title: 'Output', lines: outputLines.map(line => this.palette.toolOutput(line)) })
+    sections.push({ title: 'Output', lines: outputLines })
     return [
       '',
-      ...frameBlockSections(width, statusColor, statusBg, header, sections),
+      this.summaryRow(width, header, 'collapse'),
+      ...this.expandedSectionRows(sections),
     ]
+  }
+
+  /** Present expanded content as ordinary transcript text, without card chrome. */
+  private expandedSectionRows(sections: readonly { title: string; lines: readonly string[] }[]): string[] {
+    const rows: string[] = []
+    for (const section of sections) {
+      if (rows.length > 0 || section.title !== 'Input') rows.push('')
+      if (section.title === 'Input') {
+        section.lines.forEach((line, index) => {
+          rows.push(index === 0 ? `  ${this.palette.accent('›')} ${line}` : `    ${line}`)
+        })
+      } else {
+        // Diff/Patch lines are already grouped and themed by their existing
+        // presenters. Output retains the tool-output color in the same way.
+        rows.push(...section.lines.map(line => `  ${line}`))
+      }
+    }
+    return rows
+  }
+
+  /** Avoid repeating a single-line input that is already fully visible above. */
+  private detailFitsSummary(width: number, header: string, detail: string): boolean {
+    if (detail.includes('\n')) return false
+    const outputSize = this.compactOutputSize()
+    const summary = [
+      header,
+      this.palette.muted(`· ${detail}`),
+      outputSize === undefined ? undefined : this.palette.dim(`· ${outputSize}`),
+    ].filter((part): part is string => part !== undefined).join(' ')
+    const hint = this.palette.dim(' · (Ctrl+O to collapse)')
+    const available = Math.max(1, width)
+    return visibleWidth(hint) < available
+      && visibleWidth(summary) <= available - visibleWidth(hint)
+  }
+
+  /** Keep one stable summary row as the visual anchor in both visibility states. */
+  private summaryRow(width: number, header: string, action: 'expand' | 'collapse'): string {
+    const compactDetail = this.compactDetail()?.replace(/\n+/g, ' ')
+    const outputSize = this.compactOutputSize()
+    const summary = [
+      header,
+      compactDetail === undefined ? undefined : this.palette.muted(`· ${compactDetail}`),
+      outputSize === undefined ? undefined : this.palette.dim(`· ${outputSize}`),
+    ].filter((part): part is string => part !== undefined).join(' ')
+    const hint = this.palette.dim(` · (Ctrl+O to ${action})`)
+    const available = Math.max(1, width)
+    if (visibleWidth(hint) >= available) return this.truncateSummary(summary, available)
+    return `${this.truncateSummary(summary, available - visibleWidth(hint))}${hint}`
+  }
+
+  /** pi-tui appends an SGR reset when clipping, even for unstyled text. */
+  private truncateSummary(summary: string, width: number): string {
+    const clipped = truncateToWidth(summary, width, '')
+    return summary.includes('\x1b') ? clipped : clipped.replace(/\x1b\[0m/g, '')
+  }
+
+  /** A bounded summary that never parses or sanitizes a large argument payload. */
+  private compactDetail(): string | undefined {
+    const viewDetail = compactCallViewDetail(this.result?.view ?? this.callView)
+    if (viewDetail !== undefined) return viewDetail
+    if (this.argumentsJson.length > COLLAPSED_TEXT_SCAN_LIMIT) {
+      return `${formatCount(this.argumentsJson.length)} chars input`
+    }
+    return toolDetail(this.name, this.argumentsJson)
+  }
+
+  /** Summarize large output from block metadata without concatenating or splitting it. */
+  private compactOutputSize(): string | undefined {
+    if (this.result === undefined) return undefined
+    if (this.result.content.length > COLLAPSED_BLOCK_SCAN_LIMIT) {
+      return `${formatCount(this.result.content.length)} blocks output`
+    }
+    let characters = 0
+    let textBlocks = 0
+    for (const block of this.result.content) {
+      if (block.type !== 'text' && block.type !== 'reasoning') continue
+      characters += block.text.length
+      textBlocks++
+    }
+    if (characters === 0) return undefined
+    if (characters > COLLAPSED_TEXT_SCAN_LIMIT) return `${formatCount(characters)} chars output`
+    const text = contentText(this.result.content)
+    const lines = text === '' ? 0 : text.split('\n').length
+    return lines > this.maxOutputLines ? `${lines} lines` : textBlocks > 1 ? `${textBlocks} blocks` : undefined
+  }
+
+  /** Parse raw patch syntax only after expansion and reuse the structural parse across widths. */
+  private patchFiles(): readonly ParsedPatchFile[] {
+    this.parsedPatchFiles ??= parseApplyPatch(this.argumentsJson)
+    return this.parsedPatchFiles
   }
 }
 
