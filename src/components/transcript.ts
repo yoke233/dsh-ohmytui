@@ -16,6 +16,7 @@ import {
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
+import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { frameBlock, frameBlockSections, gradientLogo, type MarkdownTheme, type Palette } from '../theme.ts'
 import type { Translator } from '../i18n.ts'
 import { contentText, parseArguments } from './content.ts'
@@ -553,6 +554,41 @@ function strReplaceEditorSections(
   return sections
 }
 
+function diffViewSections(
+  view: ToolCallView | ToolResultView | undefined,
+  palette: Palette,
+  width: number,
+): { title: string; lines: string[] }[] {
+  if (view?.card !== 'diff' || view.diffs.length === 0) return []
+  const bodyWidth = Math.max(1, width - 6)
+  const rows: string[] = []
+  let previousPath: string | undefined
+  for (const diff of view.diffs) {
+    const path = displayText(diff.path)
+    if (path !== previousPath) {
+      rows.push(palette.muted(path))
+      previousPath = path
+    }
+    if (diff.oldText !== null) {
+      rows.push(...displayText(diff.oldText).split('\n')
+        .flatMap(line => wrapToWidth(line, bodyWidth))
+        .map(line => palette.error(`- ${line}`)))
+    }
+    rows.push(...displayText(diff.newText).split('\n')
+      .flatMap(line => wrapToWidth(line, bodyWidth))
+      .map(line => palette.success(`+ ${line}`)))
+  }
+  return [{ title: 'Diff', lines: rows }]
+}
+
+function callViewDetail(view: ToolCallView | undefined): string | undefined {
+  if (view?.card !== 'diff') return undefined
+  const paths = view.locations?.map(location => displayText(location.path))
+    ?? view.diffs.map(diff => displayText(diff.path))
+  const unique = [...new Set(paths)]
+  return unique.length === 0 ? undefined : unique.join(', ')
+}
+
 /**
  * The concrete input content shown under the tool title and above `Output`:
  * a shell command, a path, a query, or the first meaningful string argument.
@@ -581,7 +617,9 @@ export function toolDetail(name: string, argumentsJson: string): string | undefi
  * become rounded output blocks with a titled `Output` separator.
  */
 export class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean } | undefined
+  private result: { content: ContentBlock[]; isError: boolean; view?: ToolResultView } | undefined
+  private readonly subCalls: ToolCardComponent[] = []
+  private parent: ToolCardComponent | undefined
   private visibility: ToolCardVisibility = 'collapsed'
   private renderCache: RenderCache | undefined
 
@@ -590,40 +628,65 @@ export class ToolCardComponent implements Component {
     private readonly argumentsJson: string,
     private readonly maxOutputLines: number,
     private readonly palette: Palette,
+    private readonly callView?: ToolCallView,
   ) {}
 
-  /** Record the tool result. */
-  updateResult(event: Extract<SessionEvent, { type: 'tool/result' }>['data']): void {
+  /** Record one native top-level tool result. */
+  updateResult(
+    event: Extract<SessionEvent, { type: 'tool/result' }>['data'],
+    view?: ToolResultView,
+  ): void {
     const result = event.message.content[0]
-    this.result = {
-      content: [...result.content],
-      isError: result.isError === true,
-    }
-    this.renderCache = undefined
+    this.updateDispatch(result.content, result.isError === true, view)
   }
 
-  /** Set the card's visibility state. */
+  /** Record one settled official Code Dispatch child result. */
+  updateDispatch(content: readonly ContentBlock[], isError: boolean, view?: ToolResultView): void {
+    this.result = { content: [...content], isError, ...(view === undefined ? {} : { view }) }
+    this.invalidate()
+  }
+
+  /** Attach one official Code Dispatch child below this call. */
+  addSubCall(call: ToolCardComponent): void {
+    call.parent = this
+    call.setVisibility(this.visibility)
+    this.subCalls.push(call)
+    this.invalidate()
+  }
+
+  /** Set this call tree's visibility state. */
   setVisibility(visibility: ToolCardVisibility): void {
     if (this.visibility === visibility) return
     this.visibility = visibility
-    this.renderCache = undefined
+    for (const child of this.subCalls) child.setVisibility(visibility)
+    this.invalidate()
   }
 
   invalidate(): void {
     this.renderCache = undefined
+    this.parent?.invalidate()
   }
 
   render(width: number): string[] {
-    const cacheKey = `${width}|${this.visibility}|${this.result?.isError ?? ''}`
-    const cached = cachedRender(this.renderCache, cacheKey, () => this.renderUncached(width))
+    const cacheKey = `${width}|${this.visibility}|${this.result?.isError ?? ''}|${this.subCalls.length}`
+    const cached = cachedRender(this.renderCache, cacheKey, () => {
+      const own = this.renderUncached(width)
+      if (this.subCalls.length === 0 || this.visibility === 'hidden') return own
+      const childWidth = Math.max(1, width - 2)
+      return [
+        ...own,
+        ...this.subCalls.flatMap(child => child.render(childWidth)
+          .map(line => line === '' ? '' : `  ${line}`)),
+      ]
+    })
     this.renderCache = cached.cache
     return cached.lines
   }
 
   private renderUncached(width: number): string[] {
     if (this.visibility === 'hidden') return []
-    const title = toolLabel(displayText(this.name))
-    const detail = toolDetail(this.name, this.argumentsJson)
+    const title = displayText(this.result?.view?.title ?? this.callView?.title ?? toolLabel(this.name))
+    const detail = callViewDetail(this.callView) ?? toolDetail(this.name, this.argumentsJson)
     if (this.result === undefined) {
       const pending = `${this.palette.warning('')} ${this.palette.toolTitle(title)}`
       const rows = ['', truncateToWidth(pending, Math.max(1, width), '')]
@@ -652,10 +715,17 @@ export class ToolCardComponent implements Component {
       ]
     }
     const sections: { title: string; lines: string[] }[] = []
-    const editorSections = this.name === 'str_replace_editor'
-      ? strReplaceEditorSections(this.argumentsJson, this.palette, width)
-      : []
-    if (editorSections.length > 0) {
+    const presentedDiff = isError
+      ? []
+      : diffViewSections(this.result.view ?? this.callView, this.palette, width)
+    const editorSections = presentedDiff.length > 0
+      ? []
+      : this.name === 'str_replace_editor'
+        ? strReplaceEditorSections(this.argumentsJson, this.palette, width)
+        : []
+    if (presentedDiff.length > 0) {
+      sections.push(...presentedDiff)
+    } else if (editorSections.length > 0) {
       sections.push(...editorSections)
     } else if (detail !== undefined) {
       const inputLines = detail

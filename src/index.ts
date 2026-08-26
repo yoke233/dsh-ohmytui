@@ -56,6 +56,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
 // Declaration merge: the `hook/invoked` / `hook/result` session events written
 // by the dsh-hooks-claude-code bridge (via dsh-hook-protocol).
 import type {} from '@deepseek-ai/dsh-hook-protocol'
+import type { ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 // Declaration merges: `ctx.agentPresets` and the `agent-preset/selected`
 // session event, plus the runtime preset resolver for resumed sessions.
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
@@ -811,6 +812,29 @@ export class Tui extends Service {
     // --- transcript ---------------------------------------------------------
     const assistantStream = new AssistantStreamController(chat, palette, mdTheme)
     const toolCards = new Map<CallId, ToolCardComponent>()
+    const toolArguments = new Map<CallId, unknown>()
+    const toolNames = new Map<CallId, string>()
+    const presentCall = (name: string, args: unknown): ToolCallView | undefined => {
+      try {
+        return (ctx.tools.get(name, agent) ?? ctx.tools.get(name))?.presentCall?.(args)
+      } catch {
+        return undefined
+      }
+    }
+    const presentResult = (name: string, args: unknown, result: ToolResult): ToolResultView | undefined => {
+      try {
+        return (ctx.tools.get(name, agent) ?? ctx.tools.get(name))?.presentResult?.(args, result)
+      } catch {
+        return undefined
+      }
+    }
+    const parseToolArguments = (value: string): unknown => {
+      try {
+        return JSON.parse(value)
+      } catch {
+        return undefined
+      }
+    }
     const allToolCards = new Set<ToolCardComponent>()
     const contextCards = new Set<ContextCardComponent>()
     /** `hook/invoked` payloads awaiting their paired `hook/result` (by handlerId). */
@@ -867,21 +891,81 @@ export class Tui extends Service {
           assistantStream.end()
           break
         case 'tool/call': {
+          const args = parseToolArguments(event.data.arguments)
           const card = new ToolCardComponent(
             event.data.name,
             event.data.arguments,
             maxToolOutputLines,
             palette,
+            presentCall(event.data.name, args),
           )
           card.setVisibility(toolsVisibility)
           toolCards.set(event.data.callId, card)
+          toolArguments.set(event.data.callId, args)
+          toolNames.set(event.data.callId, event.data.name)
           allToolCards.add(card)
           chat.addChild(card)
           break
         }
         case 'tool/result': {
           const callId = event.data.message.content[0]?.toolCallId
-          if (callId !== undefined) toolCards.get(callId)?.updateResult(event.data)
+          const card = callId === undefined ? undefined : toolCards.get(callId)
+          if (callId !== undefined && card !== undefined) {
+            const block = event.data.message.content[0]
+            const args = toolArguments.get(callId)
+            const name = toolNames.get(callId) ?? 'unknown'
+            card.updateResult(event.data, presentResult(name, args, {
+              content: block.content,
+              isError: block.isError === true,
+              ...(event.data.meta === undefined ? {} : { meta: event.data.meta }),
+            }))
+          }
+          break
+        }
+        case 'tool/code-dispatch-start': {
+          const args = event.data.arguments
+          const card = new ToolCardComponent(
+            event.data.name,
+            JSON.stringify(args),
+            maxToolOutputLines,
+            palette,
+            presentCall(event.data.name, args),
+          )
+          card.setVisibility(toolsVisibility)
+          toolCards.set(event.data.subCallId, card)
+          toolArguments.set(event.data.subCallId, args)
+          toolNames.set(event.data.subCallId, event.data.name)
+          allToolCards.add(card)
+          const parent = toolCards.get(event.data.parentCallId)
+          if (parent === undefined) chat.addChild(card)
+          else parent.addSubCall(card)
+          break
+        }
+        case 'tool/code-dispatch': {
+          const args = event.data.arguments
+          let card = toolCards.get(event.data.subCallId)
+          if (card === undefined) {
+            card = new ToolCardComponent(
+              event.data.name,
+              JSON.stringify(args),
+              maxToolOutputLines,
+              palette,
+              presentCall(event.data.name, args),
+            )
+            card.setVisibility(toolsVisibility)
+            toolCards.set(event.data.subCallId, card)
+            toolNames.set(event.data.subCallId, event.data.name)
+            toolArguments.set(event.data.subCallId, args)
+            allToolCards.add(card)
+            const parent = toolCards.get(event.data.parentCallId)
+            if (parent === undefined) chat.addChild(card)
+            else parent.addSubCall(card)
+          }
+          card.updateDispatch(event.data.content, event.data.isError, presentResult(
+            event.data.name,
+            args,
+            { content: event.data.content, isError: event.data.isError },
+          ))
           break
         }
         case 'todo/write':

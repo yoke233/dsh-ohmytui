@@ -31,7 +31,7 @@
 | **响应式布局** | 窄终端自动压缩次要信息，优先保留模式、目录、Git 与上下文用量 |
 | **微信远程桥** | 通过官方 ClawBot / iLink 通道发送任务、查看进度并接收结果 |
 
-界面支持斜杠命令、路径与参数补全、会话/文件引用、可折叠工具卡、思考块、上下文卡以及审批对话框。
+界面支持斜杠命令、路径与参数补全、会话/文件引用、可折叠工具卡、思考块、上下文卡以及审批对话框。`repl` / `run_code` 内部工具通过 dsh 官方 Code Dispatch 事件递归显示；`apply_patch` 与 `edit` 复用标准 diff presentation，不使用 TUI 私有协议。
 
 <details>
 <summary><strong>查看完整帮助面板</strong></summary>

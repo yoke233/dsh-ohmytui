@@ -40,6 +40,9 @@ if (failure !== undefined) throw failure
 const report = {
   scenario: scenarioName(scenarioPath),
   packagedLiveTest: true,
+  packageSource: config.packageSource,
+  tuiPackage: config.tuiPackage,
+  extraBundles: config.extraBundles,
   ...result,
   artifactDirectory: config.keepArtifacts ? config.artifacts : null,
 }

@@ -179,6 +179,59 @@ describe('transcript components respect the render width', () => {
     assert.match(rows[7]!, /^├─── Output /)
   })
 
+  it('renders an official apply_patch Code Dispatch child as a nested diff', () => {
+    const root = new ToolCardComponent('repl', JSON.stringify({
+      code: 'await tools.apply_patch({ patch })',
+    }), 8, palette)
+    const child = new ToolCardComponent(
+      'apply_patch',
+      JSON.stringify({ patch: '*** Begin Patch\n...\n*** End Patch' }),
+      8,
+      palette,
+      {
+        card: 'diff',
+        title: 'Apply patch',
+        diffs: [{ path: 'src/a.ts', oldText: 'const oldValue = 1', newText: 'const newValue = 2' }],
+        locations: [{ path: 'src/a.ts' }],
+      },
+    )
+    root.addSubCall(child)
+    child.updateDispatch([{ type: 'text', text: 'Applied patch to 1 file.' }], false, {
+      card: 'diff',
+      title: 'Apply patch',
+      diffs: [{ path: 'src/a.ts', oldText: 'const oldValue = 1', newText: 'const newValue = 2' }],
+    })
+    root.updateDispatch([{ type: 'text', text: 'Applied patch to 1 file.' }], false)
+
+    const rows = render(root, 72)
+    assert.match(rows[1]!, /^╭─── • Repl /)
+    assert.ok(rows.some(row => /• Apply patch/.test(row)))
+    assert.ok(rows.some(row => /├─── Diff/.test(row)))
+    assert.ok(rows.some(row => /src\/a\.ts/.test(row)))
+    assert.ok(rows.some(row => /- const oldValue = 1/.test(row)))
+    assert.ok(rows.some(row => /\+ const newValue = 2/.test(row)))
+    assert.equal(rows.some(row => row.includes('*** Begin Patch')), false)
+  })
+
+  it('keeps a nested edit call distinct while reusing the standard diff view', () => {
+    const root = new ToolCardComponent('repl', '{"code":"await tools.edit(...)"}', 8, palette)
+    const edit = new ToolCardComponent('edit', '{"file_path":"src/a.ts"}', 8, palette, {
+      card: 'diff',
+      title: 'Edit src/a.ts',
+      diffs: [{ path: 'src/a.ts', oldText: 'before', newText: 'after' }],
+      locations: [{ path: 'src/a.ts' }],
+    })
+    root.addSubCall(edit)
+    edit.updateDispatch([{ type: 'text', text: 'Edited src/a.ts.' }], false)
+    root.updateDispatch([{ type: 'text', text: 'Edited src/a.ts.' }], false)
+
+    const rows = render(root, 72)
+    assert.ok(rows.some(row => /• Edit/.test(row)))
+    assert.ok(rows.some(row => /- before/.test(row)))
+    assert.ok(rows.some(row => /\+ after/.test(row)))
+    assert.equal(rows.some(row => /• Apply patch/.test(row)), false)
+  })
+
   it('sanitizes tabs and controls in str_replace_editor call arguments', () => {
     const card = new ToolCardComponent('str_replace_editor', JSON.stringify({
       command: 'str_replace',

@@ -23,6 +23,8 @@ export interface SessionEventMap {
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string };
   'tool/result': { turn: number; step: number; message: ToolResultMessage; error?: { name: string; code: string }; meta?: JsonValue };
   'todo/write': { todos: TodoItem[] };   // 整表快照，后写覆盖；仅 UI 状态，不进派生历史
+  'tool/code-dispatch-start': CodeDispatchStartEventData; // REPL/Code Mode nested call starts
+  'tool/code-dispatch': CodeDispatchEventData;            // matching nested call settlement
   'request/header': { header: EpochHeader; reason: RequestHeaderReason };
   'request/context': RequestContext;
   'session/end-seed': Record<string, never>;
@@ -33,6 +35,24 @@ export interface SessionEventMap {
 插件扩展方式：`declare module '@deepseek-ai/dsh-session/types' { interface SessionEventMap { ... } }`。
 
 rc8 已知新事件（log-only，TUI 默认忽略）：`team/member`、`team/message/delivered`、`team/message/queued`、`team/task`。
+
+`@deepseek-ai/dsh-tools` 对上述两个 log-only 事件声明合并：
+
+```ts
+interface CodeDispatchStartEventData {
+  rootCallId: CallId;
+  parentCallId: CallId;
+  subCallId: CallId;
+  name: string;
+  arguments: unknown;
+}
+interface CodeDispatchEventData extends CodeDispatchStartEventData {
+  isError: boolean;
+  content: ContentBlock[];
+}
+```
+
+TUI 必须按 `subCallId` 配对 start/settlement，并按 `parentCallId` 挂到父工具卡；缺失 start 的 settlement 仍携带完整 name/arguments/content，必须可回退渲染。调用与结果视图通过当前 Agent catalog 中同一 `ToolDefinition.presentCall` / `presentResult` interface 推导，不能发明 TUI 私有 metadata。Prime `repl` 与官方 `run_code` 都写入这套事件，因此 Web/TUI 消费同一协议。
 
 ### 1.2 TurnEndReason
 
@@ -636,7 +656,7 @@ interface Config {
 
 1. **启动**：`tui-startup` 行 inject `cmdlineArgs`，commander 解析 `--resume`/`--session`/`--help` → 提供 `tuiStartup`（sessionId / resumeSessionId）；agent-loop 行 `inject: [tuiStartup]` 惰性读。
 2. **取 agent**：`ctx.agents.get(sessionId)` → `Agent`；`agent.session.events` 为不可变日志快照。
-3. **渲染主通道**：`session/event` 事件（追加后馈送）+ 初始 `agent.session.events` 重放（种子不发出）。
+3. **渲染主通道**：`session/event` 事件（追加后馈送）+ 初始 `agent.session.events` 重放（种子不发出）；`tool/code-dispatch-start` / `tool/code-dispatch` 按 parent/sub-call id 组成递归工具卡，与 Web 的 `subCalls` contract 一致。
 4. **状态**：`agent/status` 事件 → 编辑框边框/指示器；`agent.session.header.cwd` 为 workspace。
 5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；剪贴板图片在草稿中只保留内存字节与 `[Image #N]` 标记，提交时先由 `ctx.attachments.saveImages` 持久化仍保留标记的图片，再把 durable image block 加入 `content`。idle 时立即在 transcript 乐观渲染普通用户消息并按 message id 等待正式事件确认，不显示 steer 待处理投影；running 时由最近的下一 step 领取，并将 `agent/inbox/inserted` 投影到 Steering 面板。正式 `user/message` 到达后，idle 乐观消息只确认去重，running 预览则按 message id 移除并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。Alt+Up 合并 `inbox.nextStep`/`nextTurn` 中可编辑的直接用户文本到当前草稿，并通过 `inbox.remove(message.id)` 逐条撤回原队列项。
 6. **中断**：`agent.cancel({ kind: 'user' })`。

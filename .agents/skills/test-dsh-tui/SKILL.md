@@ -11,7 +11,7 @@ Test at the narrowest seam that proves the behavior, then use the packaged ConPT
 
 Every live run uses a uniquely named `DSH_HOME`; the supplied runner enforces this and removes successful runs. Built-in fixtures perform no model request and write only inside that temporary root. The runner isolates DSH state, not the operating system: custom scenarios are trusted code and can access the repository, network, and parent process environment.
 
-On PowerShell, name paths `$dshHome`; `$HOME` is a case-insensitive, read-only built-in. Install packed `.tgz` files in Windows test Profiles. A directory install becomes `link:`, which does not install bundle dependencies into the Profile root where Cordis resolves them; a `file:D:/...` spec can also become an invalid mixed path.
+On PowerShell, name paths `$dshHome`; `$HOME` is a case-insensitive, read-only built-in. Every run installs tarballs into an isolated Profile. Source mode packs the current worktree; package mode accepts an existing `.tgz` and never treats a source directory as an installable package. A directory install becomes `link:`, which does not install bundle dependencies into the Profile root where Cordis resolves them.
 
 ## Choose the test seam
 
@@ -33,16 +33,24 @@ Run `pnpm run check` before committing. Completion criterion: the focused behavi
 
 ## Live ConPTY tests
 
+Choose the package under test explicitly:
+
+- **Current source change** (default): omit `--tui-package`; the runner executes `pnpm pack` from `--project-root`.
+- **Exact local/release artifact**: pass `--tui-package D:\path\dsh-omp-tui-x.y.z.tgz`; the runner skips source packing.
+- **Composed local bundles**: repeat `--extra-bundle D:\path\plugin.tgz` for each bundle. They install after the TUI package into the same isolated Profile, which is the correct seam for integration.
+
+The user's normal `tui` Profile is never reused or mutated. “Installed locally” and “source worktree” are separate inputs; compare them by running the same scenario once per package mode.
+
 Run the packaged startup/help smoke scenario:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario smoke
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario smoke
 ```
 
 Run the supervisor-based reload acceptance scenario (starts the TUI under `scripts/omdsh.js`, asserts the dsh PID is REPLACED across `/reload` while the supervisor terminal process stays, changed installed plugin code takes effect, and the new generation resumes the same session):
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario reload-respawn
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario reload-respawn
 ```
 
 The `reload` and `reload-code` scenarios are retained only as historical fixtures of the abandoned in-process reload investigation (they assert a constant PID, the opposite of the shipped respawn contract). Do not treat them as current acceptance tests.
@@ -50,18 +58,30 @@ The `reload` and `reload-code` scenarios are retained only as historical fixture
 Run the network-free, controlled-model scenario for running-turn input, immediate preview, and steer delivery:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario steer -KeepArtifacts
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario steer --keep-artifacts
 ```
 
-The runner builds and packs the current working tree, initializes an isolated `tui` Profile, starts real `dsh` in ConPTY, feeds input, and reconstructs the current terminal screen. With `-KeepArtifacts`, it records raw output plus text/SVG/PNG snapshots and installs `sharp` for PNG conversion; `node-pty` and `@xterm/headless` live only in the temporary harness. Common key/token/secret environment variables are withheld from the TUI by default.
+The MJS runner builds and packs the current working tree, initializes an isolated `tui` Profile, starts real `dsh` in ConPTY, feeds input, and reconstructs the current terminal screen. With `--keep-artifacts`, it records raw output plus text/SVG/PNG snapshots and installs `sharp` for PNG conversion; `node-pty` and `@xterm/headless` live only in the temporary harness. Common key/token/secret environment variables are withheld from the TUI by default.
 
-A successful JSON report is the acceptance artifact. For process-continuity scenarios, every observed DSH PID must be identical; a rendered success message alone is insufficient. Use `-AllowModelRequests` only for an explicit real-model scenario that needs inherited credentials.
+A successful JSON report is the acceptance artifact. For process-continuity scenarios, every observed DSH PID must be identical; a rendered success message alone is insufficient. Use `--allow-model-requests` only for an explicit real-model scenario that needs inherited credentials.
 
-Use `-KeepArtifacts` to generate and retain `pty-output.log`, `.txt`/`.svg`/`.png` screen snapshots, the packed package, and the isolated Profile:
+Use `--keep-artifacts` to generate and retain `pty-output.log`, `.txt`/`.svg`/`.png` screen snapshots, the packed package, and the isolated Profile:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario smoke -KeepArtifacts
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario smoke --keep-artifacts
 ```
+
+Run an already-built TUI archive with another local bundle:
+
+```powershell
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs `
+  --scenario smoke `
+  --tui-package D:\packages\dsh-omp-tui-0.5.2.tgz `
+  --extra-bundle D:\packages\dsh-prime-agent-0.5.0.tgz `
+  --keep-artifacts
+```
+
+The JSON report records `packageSource`, the exact `tuiPackage`, and `extraBundles`, so artifacts cannot be mistaken for source-mode results.
 
 Failed runs are retained automatically and print their artifact directory.
 
@@ -82,7 +102,7 @@ Completion criterion: the persistent tarball remains present, the assembled plug
 When a built-in scenario does not cover the behavior, read [references/scenario-api.md](references/scenario-api.md), copy [scenarios/template.mjs](scenarios/template.mjs), and pass its path:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario C:\path\to\scenario.mjs -KeepArtifacts
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario C:\path\to\scenario.mjs --keep-artifacts
 ```
 
 A scenario must assert observable behavior rather than merely sleep and exit. Prefer current-screen assertions for dialogs and replaced views, incremental-output assertions for transient notices, marker files for command execution, and PID comparison for process continuity.
@@ -115,6 +135,7 @@ DSH_E2E=1 pnpm exec node --disable-warning=ExperimentalWarning --test --experime
 - Input has no effect: use `submit()` for a line, `key()` for raw control sequences, and wait for the welcome screen before sending input.
 - Packaged import failure: check `package.json` exports, `cordis.patch.yml`, and prepare-build entries rather than source-only resolution.
 - `ERR_MODULE_NOT_FOUND` from the Profile root for a package named in `cordis.patch.yml`: inspect the `dsh-omp-tui` spec in the Profile's `package.json`. A `link:` spec is a broken bootstrap result; reinstall from a persistent packed `.tgz` and verify the dependency exists in the Profile root.
+- A failed scenario automatically prints the last 80 lines of `pty-output.log`; start there before opening the full artifact. Installation failures print their own command log immediately.
 - A Profile reinstall fails on a missing `file:` tarball for another plugin: repair that stale direct dependency first. Package archives referenced by Profile `package.json` must remain at their recorded paths.
 - PID changes: treat the test as failed even if the final command succeeds.
 - A Profile package is installed but absent after reload: inspect the temporary Profile's `package.json` and `dsh.profile.bundles`.

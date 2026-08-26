@@ -86,5 +86,5 @@ agent 注册专属 pathname 与归一化器，本 bundle 刻意不走。
   该场景需要从 Orca 内的终端运行（继承 `ORCA_PANE_KEY`）：
 
   ```powershell
-  powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/test-dsh-tui/scripts/run-live-test.ps1 -Scenario orca-status -KeepArtifacts
+  node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario orca-status --keep-artifacts
   ```
