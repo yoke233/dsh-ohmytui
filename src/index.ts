@@ -80,8 +80,8 @@ import {
 } from './respawn.ts'
 import { parseTuiPromptTemplate } from './prompt.ts'
 import { createTranslator, type MessageKey, type Translator } from './i18n.ts'
-import { registerJobsCommand, summarizeActiveJobs } from './jobs.ts'
-import { shouldCancelRunningTurn } from './input.ts'
+import { registerJobsCommand } from './jobs.ts'
+import { runningTurnKeyAction } from './input.ts'
 import {
   FULL_ACCESS_REGISTRY_NAME,
   FULL_ACCESS_UI_NAME,
@@ -125,6 +125,7 @@ import {
   TRANSCRIPT_LOAD_EVENT_STEP,
   ToolCardComponent,
   UserMessageComponent,
+  nextToolCardVisibility,
   toolDetail,
   toolLabel,
   recentTranscriptStart,
@@ -178,7 +179,7 @@ import { displayInlineText, displayText } from './components/text.ts'
 import { createOrcaStatusReporter } from './orca-status.ts'
 import { WorkingWordRotation, formatWorkingElapsed, workingActivityText } from './working-words.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
-import { foldSessionView, hasConversationData, recordConversationPreset, sessionSubagent } from './session-lifecycle.ts'
+import { foldSessionView, hasConversationData, liveChildSubagents, recordConversationPreset, sessionSubagent } from './session-lifecycle.ts'
 import type { BridgeConfig, WechatBridge } from './wechat/index.ts'
 import { setActiveAgent } from './wechat/dsh/session.ts'
 import { setTuiForegroundControl } from './wechat/dsh/tui-control.ts'
@@ -498,16 +499,19 @@ export class Tui extends Service {
     let leftTemplate = parseTuiPromptTemplate(displayInlineText(persistedTheme?.leftPrompt ?? resolved.theme.leftPrompt))
     let rightTemplate = parseTuiPromptTemplate(displayInlineText(persistedTheme?.rightPrompt ?? resolved.theme.rightPrompt))
     const promptValue = (valueName: string): string | undefined => ctx.tuiPrompt.get(valueName)
-    const jobsFooterValue = (): string | undefined => {
-      if (agent === undefined) return undefined
-      const summary = summarizeActiveJobs(ctx.jobs.list(agent))
-      if (summary.count === 0) return undefined
-      const color = summary.stopping ? palette.warning : palette.accent
-      return color(`jobs ${summary.count}`)
-    }
     let statusLine = new StatusLineComponent(rightTemplate, promptValue, palette)
     const todoPanel = new TodoPanelComponent(palette)
     const subagentPanel = new SubagentPanelComponent(palette)
+    const refreshSubagentPanel = (owner: Agent | undefined = agent): void => {
+      if (owner === undefined) {
+        subagentPanel.clear()
+        return
+      }
+      subagentPanel.set(liveChildSubagents(ctx.agents.list(), owner.id))
+      subagentPanel.setJobs(ctx.jobs.list(owner)
+        .filter(job => job.status === 'running' || job.status === 'stopping')
+        .map(job => ({ id: String(job.id), label: displayInlineText(job.label), status: job.status as 'running' | 'stopping' })))
+    }
     const pendingInputPanel = new PendingInputPanel(palette, mdTheme, t)
     const workingIndicator = new WorkingIndicatorComponent()
     const noticeSlot = new Container()
@@ -516,7 +520,7 @@ export class Tui extends Service {
     let commandHintText: string | undefined
     const commandHint = new CommandHintComponent(() => commandHintText, palette)
     const inputBorder = new InputBorderComponent(palette)
-    let footer = new ComposerFooterComponent(leftTemplate, promptValue, palette, jobsFooterValue)
+    let footer = new ComposerFooterComponent(leftTemplate, promptValue, palette)
     let noticeMounted = false
     let noticeTimer: NodeJS.Timeout | undefined
 
@@ -544,7 +548,10 @@ export class Tui extends Service {
     terminal.setTitle(resolved.title)
     ctx.effect(() => ctx.jobs.onJobsChanged((owner) => {
       if (agent === undefined) return
-      if (owner === undefined || owner === agent) ui.requestRender()
+      if (owner === undefined || owner === agent) {
+        refreshSubagentPanel()
+        ui.requestRender()
+      }
     }))
 
     // --- prompt values ----------------------------------------------------
@@ -837,7 +844,6 @@ export class Tui extends Service {
       }
     }
     const allToolCards = new Set<ToolCardComponent>()
-    const contextCards = new Set<ContextCardComponent>()
     /** `hook/invoked` payloads awaiting their paired `hook/result` (by handlerId). */
     const hookInvocations = new Map<string, { point: string; matcher?: string }>()
     let toolsVisibility: ToolCardVisibility = 'collapsed'
@@ -867,8 +873,6 @@ export class Tui extends Service {
           if (source.kind !== 'user') {
             const label = source.kind === 'plugin' ? source.plugin : source.kind
             const card = new ContextCardComponent(label, text, maxToolOutputLines, palette)
-            card.setVisibility(toolsVisibility)
-            contextCards.add(card)
             chat.addChild(card)
           } else {
             chat.addChild(new UserMessageComponent(text, palette, mdTheme))
@@ -1006,8 +1010,6 @@ export class Tui extends Service {
             ...event.data.stderrSummary === undefined ? [] : event.data.stderrSummary.split('\n'),
           ].join('\n')
           const card = new ContextCardComponent(event.data.point, detail, maxToolOutputLines, palette, 'Hook')
-          card.setVisibility(toolsVisibility)
-          contextCards.add(card)
           chat.addChild(new Spacer(1))
           chat.addChild(card)
           if (live && notify && blocked) {
@@ -1081,7 +1083,6 @@ export class Tui extends Service {
       assistantStream.end()
       toolCards.clear()
       allToolCards.clear()
-      contextCards.clear()
       hookInvocations.clear()
       chat.followLatest = anchor === 'bottom'
       chat.lineOffset = 0
@@ -1119,8 +1120,7 @@ export class Tui extends Service {
       todoPanel.setTodos(view.todos)
       todoPanel.setGoal(view.goal)
       tokenTotals = { ...view.tokenTotals }
-      subagentPanel.clear()
-      for (const descriptor of view.subagents) subagentPanel.add(descriptor)
+      refreshSubagentPanel()
       contextUsageCache.measuredAt = 0
       // Re-derive persistent compacting flag when rebuilding a truncated window.
       isCompacting = false
@@ -1179,10 +1179,8 @@ export class Tui extends Service {
 
     // --- input ---------------------------------------------------------------
     const toggleTools = (): void => {
-      toolsVisibility = toolsVisibility === 'collapsed' ? 'expanded'
-        : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed'
+      toolsVisibility = nextToolCardVisibility(toolsVisibility)
       for (const card of allToolCards) card.setVisibility(toolsVisibility)
-      for (const card of contextCards) card.setVisibility(toolsVisibility)
       appendNotice(t('noticeToolCards', { visibility: toolsVisibility }), 'info')
     }
 
@@ -2276,7 +2274,7 @@ export class Tui extends Service {
                   } else {
                     rightPrompt = next
                     rightTemplate = parseTuiPromptTemplate(displayInlineText(next))
-                    footer = new ComposerFooterComponent(leftTemplate, promptValue, palette, jobsFooterValue)
+                    footer = new ComposerFooterComponent(leftTemplate, promptValue, palette)
                   }
                   await tuiSettings.update({ leftPrompt, rightPrompt })
                   rebuildChrome()
@@ -3113,12 +3111,24 @@ export class Tui extends Service {
       })
     }
 
-    // First Ctrl+C interrupts the running turn (or hints at the exit path
-    // when idle); a second press within the window requests process exit
-    // through the launcher's bounded `appExit` hook.
+    // With a running turn, Ctrl+C clears a non-empty draft first; on an
+    // empty draft it cancels and recalls queued steer text. While idle, the
+    // existing double-press exit gesture remains unchanged.
     let exitArmed = false
     let exitArmTimer: NodeJS.Timeout | undefined
     const EXIT_ARM_WINDOW_MS = 2000
+
+    const recallPendingInput = (current: Agent): boolean => {
+      const pending = [...current.inbox.nextStep, ...current.inbox.nextTurn]
+        .filter(message => message.source.kind === 'user' && contentText(message.content).trim() !== '')
+      if (pending.length === 0) return false
+      const merged = mergePendingInput(pending, editor.getText())
+      for (const message of pending) current.inbox.remove(message.id)
+      pendingInputPanel.sync([...current.inbox.nextStep, ...current.inbox.nextTurn])
+      editor.setText(merged)
+      refreshPendingInput()
+      return true
+    }
 
     const offKeys = ui.addInputListener((data) => {
       const pastedFile = editor.focused ? pastedImageFilePath(data) : null
@@ -3138,20 +3148,24 @@ export class Tui extends Service {
       }
       if (editor.focused && matchesKey(data, 'alt+up' as Parameters<typeof matchesKey>[1])) {
         const current = agent
-        if (current !== undefined && shouldProjectPendingInput(current.status)) {
-          const pending = [...current.inbox.nextStep, ...current.inbox.nextTurn]
-            .filter(message => message.source.kind === 'user' && contentText(message.content).trim() !== '')
-          if (pending.length > 0) {
-            const merged = mergePendingInput(pending, editor.getText())
-            for (const message of pending) current.inbox.remove(message.id)
-            editor.setText(merged)
-            ui.requestRender()
-            return { consume: true }
-          }
+        if (current !== undefined && shouldProjectPendingInput(current.status) && recallPendingInput(current)) {
+          ui.requestRender()
+          return { consume: true }
         }
       }
-      if (shouldCancelRunningTurn(data, agent?.status, editor.focused)) {
-        agent?.cancel({ kind: 'user' })
+      const runningKeyAction = runningTurnKeyAction(data, agent?.status, editor.focused, editor.getText())
+      if (runningKeyAction === 'clear-draft') {
+        editor.setText('')
+        ui.requestRender()
+        return { consume: true }
+      }
+      if (runningKeyAction === 'cancel') {
+        const current = agent
+        if (current !== undefined) {
+          recallPendingInput(current)
+          current.cancel({ kind: 'user' })
+        }
+        ui.requestRender()
         return { consume: true }
       }
       if (matchesKey(data, 'ctrl+c')) {
@@ -3182,6 +3196,11 @@ export class Tui extends Service {
         toggleReasoning()
         return {}
       }
+      if (subagentPanel.isExpanded() && matchesKey(data, 'left' as Parameters<typeof matchesKey>[1])) {
+        subagentPanel.setExpanded(false)
+        ui.requestRender()
+        return { consume: true }
+      }
       if (matchesKey(data, 'pageup' as Parameters<typeof matchesKey>[1])) {
         scrollTranscriptPage(-1)
         return { consume: true }
@@ -3195,6 +3214,12 @@ export class Tui extends Service {
       if (matchesKey(data, 'down' as Parameters<typeof matchesKey>[1]) && !chat.followLatest) {
         chat.followLatest = true
         chat.lineOffset = Math.max(0, chat.lastTotalLines - chat.lastViewportLines)
+        ui.requestRender()
+        return { consume: true }
+      }
+      if (matchesKey(data, 'down' as Parameters<typeof matchesKey>[1])
+        && editor.focused && editor.getText() === '' && subagentPanel.hasEntries()) {
+        subagentPanel.setExpanded(true)
         ui.requestRender()
         return { consume: true }
       }
@@ -3621,8 +3646,14 @@ export class Tui extends Service {
           refreshPendingInput()
         })
       }
-      offEvent = ctx.on('session/event', (session, event) => handleSessionEvent(liveAgent.session.id, session, event))
-      offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => handleAgentStatus(liveAgent.id, candidate, status))
+      offEvent = ctx.on('session/event', (session, event) => {
+        refreshSubagentPanel(liveAgent)
+        handleSessionEvent(liveAgent.session.id, session, event)
+      })
+      offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => {
+        refreshSubagentPanel(liveAgent)
+        handleAgentStatus(liveAgent.id, candidate, status)
+      })
       subscribeInbox(liveAgent)
 
       offScheme = ui.onTerminalColorSchemeChange((scheme) => {
@@ -3689,8 +3720,14 @@ export class Tui extends Service {
           t,
           () => selectionRef.current,
         )
-        offEvent = ctx.on('session/event', (session, event) => handleSessionEvent(next.session.id, session, event))
-        offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => handleAgentStatus(next.id, candidate, status))
+        offEvent = ctx.on('session/event', (session, event) => {
+          refreshSubagentPanel(next)
+          handleSessionEvent(next.session.id, session, event)
+        })
+        offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => {
+          refreshSubagentPanel(next)
+          handleAgentStatus(next.id, candidate, status)
+        })
         subscribeInbox(next)
         rebuildTranscript()
         live = true

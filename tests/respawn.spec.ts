@@ -26,6 +26,13 @@ function runChild(script: string): { status: number | null; durationMs: number }
 }
 
 describe('respawn contract constants', () => {
+  it('uses one clear reload message and silently accepts a newer Profile bundle', () => {
+    const launcher = readFileSync(new URL('../scripts/omdsh.js', import.meta.url), 'utf8')
+    assert.equal((launcher.match(/正在重启 TUI 并恢复当前会话/g) ?? []).length, 1)
+    assert.equal(launcher.includes('启动器较旧，跳过自动更新'), false)
+    assert.equal(launcher.includes('正在启动新一代进程并续接会话'), false)
+  })
+
   it('keeps the supervisor contract stable', () => {
     // scripts/omdsh.js hardcodes both values; a change here must change there.
     assert.equal(RELOAD_EXIT_CODE, 75)

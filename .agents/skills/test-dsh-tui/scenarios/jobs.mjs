@@ -53,7 +53,14 @@ export async function run(tui) {
   const startOffset = tui.mark()
   tui.submit('/live-job-start')
   await tui.waitForOutput(/LIVE_JOB_STARTED bash-\d+/, { since: startOffset, timeoutMs: 10_000, label: 'job started' })
-  await tui.waitForScreen(/jobs 1/, { timeoutMs: 10_000, label: 'footer jobs count' })
+  await tui.waitForScreen(/jobs ● 1 running ◐ 0 stopping.*↓ select/, { timeoutMs: 10_000, label: 'compact jobs status' })
+  tui.key('\x1b[B')
+  await tui.waitForScreen(/Background tasks[\s\S]*← Main agent[\s\S]*Jobs[\s\S]*bash-\d+ · running · live jobs probe/, {
+    timeoutMs: 10_000,
+    label: 'expanded jobs list',
+  })
+  tui.key('\x1b[D')
+  await tui.waitForScreen(/jobs ● 1 running ◐ 0 stopping.*↓ select/, { timeoutMs: 10_000, label: 'returned from jobs list' })
 
   const listOffset = tui.mark()
   tui.submit('/jobs')
@@ -64,7 +71,7 @@ export async function run(tui) {
   const finishOffset = tui.mark()
   tui.submit('/live-job-finish')
   await tui.waitForOutput(/LIVE_JOB_FINISHED/, { since: finishOffset, timeoutMs: 10_000, label: 'job finished' })
-  await tui.waitFor(async () => !(await tui.screenText()).includes('jobs 1'), 10_000, 'footer jobs count hidden')
+  await tui.waitFor(async () => !(await tui.screenText()).includes('jobs ●'), 10_000, 'background jobs status hidden')
 
   const settledOffset = tui.mark()
   tui.submit('/jobs')
@@ -76,8 +83,10 @@ export async function run(tui) {
   tui.runDsh(['plugin', '--profile', 'tui', 'remove', packageName])
   return {
     jobsCommandObserved: true,
-    footerCountObserved: true,
-    footerCountCleared: true,
+    compactStatusObserved: true,
+    downOpenedJobsList: true,
+    leftReturnedToMain: true,
+    compactStatusCleared: true,
     processStayedLive: true,
     pidBefore,
     pidAfter,

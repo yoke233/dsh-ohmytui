@@ -50,12 +50,16 @@ export async function run(tui) {
   tui.submit('START_ESCAPE_CANCEL_TURN')
   await tui.waitFor(() => existsSync(requestStarted), 15_000, 'controlled model request')
   await tui.waitForOutput('ESCAPE_CANCEL_WAITING', { timeoutMs: 15_000, label: 'running response' })
+  tui.submit('ESCAPE_STEER_ONE')
+  tui.submit('ESCAPE_STEER_TWO')
+  await tui.waitForScreen(/Steering:[\s\S]*ESCAPE_STEER_ONE[\s\S]*ESCAPE_STEER_TWO/, { timeoutMs: 5_000, label: 'queued Escape steers' })
 
   tui.key('\x1b')
   await tui.waitFor(() => existsSync(requestAborted), 15_000, 'model request aborted by Escape')
-  tui.submit('/help')
-  await tui.waitForScreen(/键盘快捷键|Keyboard shortcuts/, { timeoutMs: 15_000, label: 'TUI accepts input after cancellation' })
-  await tui.waitForScreen(/Esc[\s\S]*(停止进行中的任务|stop the running task)/, { timeoutMs: 5_000, label: 'Escape shortcut help' })
+  await tui.waitFor(async () => {
+    const screen = await tui.screenText()
+    return screen.includes('ESCAPE_STEER_ONE') && screen.includes('ESCAPE_STEER_TWO') && !screen.includes('Steering:')
+  }, 5_000, 'Escape recalled queued steers into editor')
 
   const pidAfter = tui.pid()
   const abortedPid = Number((await import('node:fs')).readFileSync(requestAborted, 'utf8'))
@@ -63,5 +67,5 @@ export async function run(tui) {
     throw new Error(`DSH PID changed: ${pidBefore}, ${abortedPid}, ${pidAfter}`)
   }
   const settled = await tui.snapshot('escape-cancel-settled')
-  return { escapeCancelledRunningTurn: true, processStayedLive: true, pidBefore, pidAfter, screenshots: { settled } }
+  return { escapeCancelledRunningTurn: true, queuedSteersRecalled: true, processStayedLive: true, pidBefore, pidAfter, screenshots: { settled } }
 }

@@ -1,5 +1,6 @@
 import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
-import type { Session, SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Session, SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
 
 /** Events proving that a session contains model-facing conversation data. */
 const CONVERSATION_EVENT_TYPES: Readonly<Record<string, true>> = {
@@ -14,9 +15,11 @@ export function hasConversationData(events: readonly SessionEvent[]): boolean {
 }
 
 export interface SessionSubagent {
+  readonly id?: string
   readonly label?: string
   readonly provider: string
   readonly mode: 'one-shot' | 'continuable'
+  readonly status?: 'idle' | 'running'
 }
 
 export interface SessionViewState {
@@ -43,6 +46,29 @@ export function sessionSubagent(event: SessionEvent): SessionSubagent | undefine
     provider: provider ?? 'subagent',
     mode: mode ?? 'one-shot',
   }
+}
+
+/** Project direct, currently live child agents for the main-screen navigator. */
+export function liveChildSubagents(agents: readonly Agent[], parentId: SessionId): SessionSubagent[] {
+  return agents
+    .filter(candidate => candidate.session.header.parentSession === parentId
+      && candidate.session.header.origin === 'subagent')
+    .sort((left, right) => left.session.header.createdAt - right.session.header.createdAt
+      || String(left.id).localeCompare(String(right.id)))
+    .map(candidate => {
+      const ownEvents = candidate.session.events.slice(candidate.session.header.seedLength)
+      const descriptor = ownEvents.map(sessionSubagent).find(value => value !== undefined)
+      const provider = descriptor?.provider === undefined || descriptor.provider === 'subagent'
+        ? candidate.options.provider ?? 'subagent'
+        : descriptor.provider
+      return {
+        id: String(candidate.id),
+        ...(descriptor?.label === undefined ? {} : { label: descriptor.label }),
+        provider,
+        mode: descriptor?.mode ?? 'one-shot',
+        status: candidate.status,
+      }
+    })
 }
 
 /** Fold session-owned UI projections independently from the visible transcript window. */

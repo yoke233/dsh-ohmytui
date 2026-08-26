@@ -94,7 +94,7 @@ export async function run(tui) {
   const offset = tui.mark()
   const reloadStartedAt = Date.now()
   tui.submit('/reload')
-  await tui.waitForOutput(/正在启动新一代进程|starting a new generation/i, {
+  await tui.waitForOutput(/正在重启 TUI 并恢复当前会话|restarting TUI/i, {
     since: offset,
     timeoutMs: 30_000,
     label: 'supervisor starts replacement generation',

@@ -1,4 +1,4 @@
-/** Official Code Dispatch events render one nested edit diff in the packaged TUI. */
+/** Official Code Dispatch cards toggle between compact and expanded in the packaged TUI. */
 export async function run(tui) {
   const packageName = 'dsh-live-code-dispatch-fixture'
   const fixture = tui.packFixture({
@@ -51,18 +51,34 @@ export async function run(tui) {
   await tui.waitForOutput(/欢迎回来|Welcome back/, { timeoutMs: 30_000, label: 'welcome screen' })
   const pidBefore = tui.pid()
   tui.submit('RUN_CODE_DISPATCH_FIXTURE')
+  await tui.waitForOutput('CODE_DISPATCH_DONE', { timeoutMs: 20_000, label: 'controlled turn completion' })
+  await tui.waitForScreen(/• Edit .*src\/a\.ts.*Ctrl\+O to expand/, {
+    timeoutMs: 20_000,
+    label: 'compact edit card',
+  })
+
+  tui.key('\x0f')
   await tui.waitForScreen(/• Edit[\s\S]*├─── Input[\s\S]*src\/a\.ts[\s\S]*├─── Output[\s\S]*Edited src\/a\.ts\./, {
     timeoutMs: 20_000,
-    label: 'official nested edit card',
+    label: 'expanded edit card',
   })
-  await tui.waitForOutput('CODE_DISPATCH_DONE', { timeoutMs: 20_000, label: 'controlled turn completion' })
+
+  tui.key('\x0f')
+  await tui.waitForScreen(/• Edit .*src\/a\.ts.*Ctrl\+O to expand/, {
+    timeoutMs: 20_000,
+    label: 'collapsed edit card after second toggle',
+  })
+  const collapsedScreen = await tui.screenText()
+  if (collapsedScreen.includes('├─── Output')) throw new Error('Tool card remained expanded after second Ctrl+O')
   const snapshot = await tui.snapshot('code-dispatch')
   const pidAfter = tui.pid()
   if (pidBefore !== pidAfter) throw new Error(`DSH PID changed: ${pidBefore} -> ${pidAfter}`)
 
   return {
     ready: true,
-    nestedCardRendered: true,
+    compactCardRendered: true,
+    expandedCardRendered: true,
+    hiddenStateDisabled: true,
     processStayedLive: true,
     pidBefore,
     pidAfter,

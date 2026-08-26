@@ -2,11 +2,24 @@
 
 ## Unreleased
 
+## [0.5.7] - 2026-08-26
+
+- 简化 `omdsh` 重载提示为单行“正在重启 TUI 并恢复当前会话”；当 Profile bundle 版本高于全局启动器时静默跳过 bootstrap，不再显示与 reload 无关的版本比较或“避免降级”提示。
+
+## [0.5.6] - 2026-08-26
+
+- 调整运行中任务的取消键行为：Ctrl+C 在输入框非空时只清空当前草稿，不中断任务；输入框为空时 Ctrl+C 或 Esc 会先把全部 Steering 队列消息按顺序恢复到输入框，再取消当前任务。新增源码行为测试和打包后 Ctrl+C/Escape ConPTY 验收。
+
+## [0.5.5] - 2026-08-26
+
 - 升级开发工具链到 TypeScript 7、Node.js 26 类型定义和 `@earendil-works/pi-tui` 0.84.3；将主屏构造迁移到 `TuiMainScreen`，并把无边框提示符编辑器补丁重放到新版 pi-tui。
 - 支持 dsh 官方 `tool/code-dispatch-start` / `tool/code-dispatch` 子调用协议：`repl` 与 `run_code` 内的工具调用按 parent/sub-call id 嵌套显示，并通过当前工具的 `presentCall` / `presentResult` 复用标准 diff 等视图；`apply_patch` 与 `edit` 不再退化为一整块 REPL 文本。
 - 新增 Orca pane 内的 agent 状态上报（OSC 9999）：Orca 左侧 workspace 列表现在会显示这个会话那一行（`● Working – DSH` / `✓ Done – DSH`）。新增 `src/orca-status.ts`（序列化 + 状态机，字节直写 stdout 绕开差分渲染器），由 `ORCA_PANE_KEY` 门禁，普通终端下完全静默；上报 `prompt` / `toolName` / `toolInput` / `lastAssistantMessage` / `model` / `interrupted` / `sessionBoundary`，权限确认与提问统一上报 `waiting` 且必带在批准什么，选项式提问附 `interactivePrompt` 让 Orca 渲染成可点击卡片。新增 `tests/orca-status.spec.ts` 与 ConPTY 验收场景 `orca-status`，文档见 `docs/orca.md`
 - 修复模型请求网络异常、上游 429、重试耗尽等回合错误仅在 notice 区域显示的问题：错误现在作为持久卡片进入 transcript 列表，并在会话重绘时按原顺序恢复。新增打包后 ConPTY 场景 `error-persistence`，验证错误位于后续回合之前且 6 秒后仍在当前界面
 - 修复 `omdsh` 用 `file:` 目录引导安装时被 pnpm 记录为 `link:`、导致 `cordis.patch.yml` 引用的运行依赖未安装到 Profile 根目录：启动器现在先生成 `.tgz` 再安装，发现同版本 Profile 缺少直接运行依赖时会自动修复，并在 Windows 更新前解除旧目录链接
+- 精简工具调用显示：成功的 REPL dispatch 只保留具体子工具卡，Ctrl+O 改为紧凑折叠与完整展开两态，不再隐藏工具；`apply_patch` 解析为按文件分组、使用当前主题增删色的 Patch 视图。
+- 新增 Background tasks 面板：汇总子 Agent 的 running/idle 状态和 running/stopping Jobs，空编辑器按 ↓ 展开、按 ← 返回主界面，并移除 footer 中重复的 Jobs 计数。
+- 新增打包后 ConPTY 验收场景，覆盖工具卡两态切换、Patch 渲染、子 Agent 导航与 Jobs 导航。
 
 ## [0.5.0] - 2026-08-24
 

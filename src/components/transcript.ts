@@ -554,6 +554,71 @@ function strReplaceEditorSections(
   return sections
 }
 
+interface ParsedPatchFile {
+  operation: 'Add' | 'Update' | 'Delete'
+  path: string
+  lines: string[]
+  additions: number
+  deletions: number
+}
+
+function parseApplyPatch(argumentsJson: string): ParsedPatchFile[] {
+  const parsed = parseArguments(argumentsJson)
+  if (!parsed.valid || typeof parsed.value !== 'object' || parsed.value === null) return []
+  const patch = (parsed.value as Record<string, unknown>).patch
+  if (typeof patch !== 'string') return []
+  const files: ParsedPatchFile[] = []
+  let current: ParsedPatchFile | undefined
+  for (const rawLine of displayText(patch).split('\n')) {
+    const file = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(rawLine)
+    if (file !== null) {
+      current = { operation: file[1] as ParsedPatchFile['operation'], path: file[2]!, lines: [], additions: 0, deletions: 0 }
+      files.push(current)
+      continue
+    }
+    if (current === undefined || rawLine === '*** Begin Patch' || rawLine === '*** End Patch') continue
+    if (rawLine.startsWith('*** Move to: ')) {
+      current.lines.push('→ ' + rawLine.slice('*** Move to: '.length))
+      continue
+    }
+    current.lines.push(rawLine)
+    if (rawLine.startsWith('+')) current.additions++
+    else if (rawLine.startsWith('-')) current.deletions++
+  }
+  return files
+}
+
+function applyPatchSummary(argumentsJson: string): string | undefined {
+  const files = parseApplyPatch(argumentsJson)
+  if (files.length === 0) return undefined
+  const additions = files.reduce((total, file) => total + file.additions, 0)
+  const deletions = files.reduce((total, file) => total + file.deletions, 0)
+  return String(files.length) + ' ' + (files.length === 1 ? 'file' : 'files') + ' (+' + String(additions) + ' -' + String(deletions) + ')'
+}
+
+/** Render model-facing apply_patch syntax as a themed, file-grouped diff. */
+function applyPatchSections(argumentsJson: string, palette: Palette, width: number): { title: string; lines: string[] }[] {
+  const files = parseApplyPatch(argumentsJson)
+  if (files.length === 0) return []
+  const bodyWidth = Math.max(1, width - 6)
+  const rows: string[] = []
+  const coloredDiff = (prefix: string, text: string, color: Palette['success']): string[] =>
+    wrapToWidth(text, Math.max(1, bodyWidth - 2)).map((line, index) => color((index === 0 ? prefix : '  ') + line))
+  for (const file of files) {
+    const stats = (file.additions > 0 ? ' +' + String(file.additions) : '')
+      + (file.deletions > 0 ? ' -' + String(file.deletions) : '')
+    rows.push(palette.accent(file.operation + ' ' + file.path) + palette.dim(stats))
+    for (const line of file.lines) {
+      if (line.startsWith('+')) rows.push(...coloredDiff('+ ', line.slice(1), palette.success))
+      else if (line.startsWith('-')) rows.push(...coloredDiff('- ', line.slice(1), palette.error))
+      else if (line.startsWith('@@')) rows.push(palette.dim(line))
+      else if (line.startsWith('→ ')) rows.push(palette.accent(line))
+      else rows.push(...coloredDiff('  ', line.startsWith(' ') ? line.slice(1) : line, palette.toolOutput))
+    }
+  }
+  return [{ title: 'Patch', lines: rows }]
+}
+
 function diffViewSections(
   view: ToolCallView | ToolResultView | undefined,
   palette: Palette,
@@ -601,6 +666,7 @@ export function toolDetail(name: string, argumentsJson: string): string | undefi
   }
   const args = parsed.value as Record<string, unknown>
   if (name === 'str_replace_editor') return strReplaceEditorDetail(args)
+  if (name === 'apply_patch') return applyPatchSummary(argumentsJson)
   const picked = pickString(args, SUMMARY_KEYS[toolVariant(name)] ?? [])
   if (picked !== undefined) return picked
   for (const value of Object.values(args)) {
@@ -671,20 +737,21 @@ export class ToolCardComponent implements Component {
     const cacheKey = `${width}|${this.visibility}|${this.result?.isError ?? ''}|${this.subCalls.length}`
     const cached = cachedRender(this.renderCache, cacheKey, () => {
       const own = this.renderUncached(width)
-      if (this.subCalls.length === 0 || this.visibility === 'hidden') return own
+      if (this.subCalls.length === 0) return own
       const childWidth = Math.max(1, width - 2)
-      return [
-        ...own,
-        ...this.subCalls.flatMap(child => child.render(childWidth)
-          .map(line => line === '' ? '' : `  ${line}`)),
-      ]
+      const children = this.subCalls.flatMap(child => child.render(childWidth)
+        .map(line => line === '' ? '' : `  ${line}`))
+      // REPL is only the dispatch wrapper once concrete child tools exist. Keep
+      // the more informative child cards and avoid showing the same operation
+      // twice; a failed wrapper remains visible so its error is not swallowed.
+      if (this.name === 'repl' && this.result?.isError !== true) return children
+      return [...own, ...children]
     })
     this.renderCache = cached.cache
     return cached.lines
   }
 
   private renderUncached(width: number): string[] {
-    if (this.visibility === 'hidden') return []
     const title = displayText(this.result?.view?.title ?? this.callView?.title ?? toolLabel(this.name))
     const detail = callViewDetail(this.callView) ?? toolDetail(this.name, this.argumentsJson)
     if (this.result === undefined) {
@@ -707,12 +774,18 @@ export class ToolCardComponent implements Component {
       : `${this.palette.dim(glyph)} ${this.palette.toolTitle(title)}`
     const output = displayText(contentText(this.result.content).trim())
     let outputLines = output === '' ? [this.palette.dim('(no output)')] : output.split('\n')
-    if (this.visibility === 'collapsed' && outputLines.length > this.maxOutputLines) {
-      const hidden = outputLines.length - this.maxOutputLines
-      outputLines = [
-        ...outputLines.slice(0, this.maxOutputLines),
-        this.palette.dim(`… +${hidden} lines (Ctrl+O to expand)`),
-      ]
+    if (this.visibility === 'collapsed') {
+      const compactDetail = detail?.replace(/\n+/g, ' ')
+      const outputSize = outputLines.length > this.maxOutputLines ? `${outputLines.length} lines` : undefined
+      const summary = [
+        header,
+        compactDetail === undefined ? undefined : this.palette.muted(`· ${compactDetail}`),
+        outputSize === undefined ? undefined : this.palette.dim(`· ${outputSize}`),
+      ].filter((part): part is string => part !== undefined).join(' ')
+      const expandHint = this.palette.dim(' · (Ctrl+O to expand)')
+      const available = Math.max(1, width)
+      if (visibleWidth(expandHint) >= available) return ['', truncateToWidth(summary, available, '')]
+      return ['', `${truncateToWidth(summary, available - visibleWidth(expandHint), '')}${expandHint}`]
     }
     const sections: { title: string; lines: string[] }[] = []
     const presentedDiff = isError
@@ -723,8 +796,13 @@ export class ToolCardComponent implements Component {
       : this.name === 'str_replace_editor'
         ? strReplaceEditorSections(this.argumentsJson, this.palette, width)
         : []
+    const patchSections = presentedDiff.length > 0 || this.name !== 'apply_patch'
+      ? []
+      : applyPatchSections(this.argumentsJson, this.palette, width)
     if (presentedDiff.length > 0) {
       sections.push(...presentedDiff)
+    } else if (patchSections.length > 0) {
+      sections.push(...patchSections)
     } else if (editorSections.length > 0) {
       sections.push(...editorSections)
     } else if (detail !== undefined) {
@@ -742,8 +820,12 @@ export class ToolCardComponent implements Component {
   }
 }
 
-/** Ctrl+O card-visibility cycle: hidden, collapsed preview, expanded. */
-export type ToolCardVisibility = 'hidden' | 'collapsed' | 'expanded'
+/** Ctrl+O toggles between a compact summary and the complete tool card. */
+export type ToolCardVisibility = 'collapsed' | 'expanded'
+
+export function nextToolCardVisibility(visibility: ToolCardVisibility): ToolCardVisibility {
+  return visibility === 'collapsed' ? 'expanded' : 'collapsed'
+}
 
 /**
  * A non-human prompt contribution (plugin/goal sources), framed so it cannot
@@ -781,7 +863,6 @@ export class ContextCardComponent implements Component {
     const cached = cachedRender(this.renderCache, cacheKey, () => {
       let linesToRender: string[]
       let truncated = false
-      if (this.visibility === 'hidden') return []
       if (this.visibility === 'collapsed' && this.fullLines.length > this.maxOutputLines) {
         const hidden = this.fullLines.length - this.maxOutputLines
         linesToRender = [...this.fullLines.slice(0, this.maxOutputLines), `… +${hidden} lines (Ctrl+O to expand)`]
@@ -827,9 +908,17 @@ export class StaticCardComponent implements Component {
  */
 /** A child subagent descriptor shown above the transcript. */
 export interface SubagentDescriptor {
+  readonly id?: string
   readonly label?: string
   readonly provider: string
   readonly mode: 'one-shot' | 'continuable'
+  readonly status?: 'idle' | 'running'
+}
+
+export interface BackgroundJobDescriptor {
+  readonly id: string
+  readonly label: string
+  readonly status: 'running' | 'stopping'
 }
 
 /** One-line notice for older transcript entries that are currently folded. */
@@ -850,12 +939,13 @@ export class TranscriptFoldNoticeComponent implements Component {
 }
 
 /**
- * Subagent call panel rendered above the status line. The dsh harness appends
- * `subagent/descriptor` events to child session logs; when the active session
- * carries them (forked/child sessions), this panel keeps a tree-like list.
+ * Compact live-subagent hint above the status line. Down expands the direct-child
+ * list and Left returns to the main-agent view without changing foreground input.
  */
 export class SubagentPanelComponent implements Component {
   private descriptors: readonly SubagentDescriptor[] = []
+  private jobs: readonly BackgroundJobDescriptor[] = []
+  private expanded = false
   private renderCache: RenderCache | undefined
 
   constructor(private readonly palette: Palette) {}
@@ -869,26 +959,76 @@ export class SubagentPanelComponent implements Component {
     this.renderCache = undefined
   }
 
+  set(descriptors: readonly SubagentDescriptor[]): void {
+    this.descriptors = [...descriptors]
+    if (!this.hasEntries()) this.expanded = false
+    this.renderCache = undefined
+  }
+
+  setJobs(jobs: readonly BackgroundJobDescriptor[]): void {
+    this.jobs = [...jobs]
+    if (!this.hasEntries()) this.expanded = false
+    this.renderCache = undefined
+  }
+
+  hasEntries(): boolean {
+    return this.descriptors.length + this.jobs.length > 0
+  }
+
+  isExpanded(): boolean {
+    return this.expanded
+  }
+
+  setExpanded(expanded: boolean): void {
+    if (this.expanded === expanded || (expanded && !this.hasEntries())) return
+    this.expanded = expanded
+    this.renderCache = undefined
+  }
+
   clear(): void {
     this.descriptors = []
+    this.jobs = []
+    this.expanded = false
     this.renderCache = undefined
   }
 
   render(width: number): string[] {
-    const cacheKey = `${width}|${this.descriptors.map(descriptor => descriptor.label ?? descriptor.provider).join('\u0000')}`
+    const cacheKey = `${width}|${this.expanded}|${this.descriptors.map(descriptor => `${descriptor.id ?? ''}:${descriptor.label ?? descriptor.provider}:${descriptor.status ?? ''}`).join('\u0000')}|${this.jobs.map(job => `${job.id}:${job.status}:${job.label}`).join('\u0000')}`
     const cached = cachedRender(this.renderCache, cacheKey, () => this.renderUncached(width))
     this.renderCache = cached.cache
     return cached.lines
   }
 
   private renderUncached(width: number): string[] {
-    if (this.descriptors.length === 0) return []
-    const lines = [this.palette.bold(this.palette.accent('Subagents'))]
-    this.descriptors.forEach((descriptor, index) => {
-      const branch = index === this.descriptors.length - 1 ? '└─' : '├─'
-      const name = descriptor.label ?? descriptor.provider
-      lines.push(this.palette.muted(` ${branch} ${name} · ${descriptor.mode}`))
-    })
+    if (!this.hasEntries()) return []
+    const agentRunning = this.descriptors.filter(descriptor => descriptor.status === 'running').length
+    const agentIdle = this.descriptors.filter(descriptor => descriptor.status === 'idle').length
+    const jobsRunning = this.jobs.filter(job => job.status === 'running').length
+    const jobsStopping = this.jobs.length - jobsRunning
+    if (!this.expanded) {
+      const groups = [
+        this.descriptors.length === 0 ? undefined : `agents ● ${agentRunning} running ○ ${agentIdle} idle`,
+        this.jobs.length === 0 ? undefined : `jobs ● ${jobsRunning} running ◐ ${jobsStopping} stopping`,
+      ].filter((group): group is string => group !== undefined)
+      return [truncateToWidth(this.palette.muted(`${groups.join(' · ')} · ↓ select`), Math.max(1, width), '')]
+    }
+    const lines = [this.palette.bold(this.palette.accent('Background tasks')), this.palette.dim('← Main agent')]
+    if (this.descriptors.length > 0) {
+      lines.push(this.palette.accent('Subagents'))
+      this.descriptors.forEach((descriptor, index) => {
+        const branch = index === this.descriptors.length - 1 ? '└─' : '├─'
+        const name = descriptor.label ?? descriptor.provider
+        const status = descriptor.status === undefined ? '' : ` · ${descriptor.status}`
+        lines.push(this.palette.muted(` ${branch} ${name} · ${descriptor.mode}${status}`))
+      })
+    }
+    if (this.jobs.length > 0) {
+      lines.push(this.palette.accent('Jobs'))
+      this.jobs.forEach((job, index) => {
+        const branch = index === this.jobs.length - 1 ? '└─' : '├─'
+        lines.push(this.palette.muted(` ${branch} ${job.id} · ${job.status} · ${job.label}`))
+      })
+    }
     return lines.map(line => truncateToWidth(line, Math.max(1, width), ''))
   }
 }

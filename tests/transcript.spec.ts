@@ -11,6 +11,7 @@ import {
   SubagentPanelComponent,
   TodoPanelComponent,
   ToolCardComponent,
+  nextToolCardVisibility,
   recentTranscriptStart,
   TranscriptViewport,
   ThinkingBlock,
@@ -83,7 +84,7 @@ describe('transcript components respect the render width', () => {
     }
   })
 
-  it('uses an inline pending status and sectioned settled output', () => {
+  it('uses compact pending and collapsed statuses with expanded sections', () => {
     const pending = new ToolCardComponent('read', '{"i":"Reading entrypoint","path":"src/index.ts"}', 6, palette)
     assert.deepEqual(render(pending, 48), ['', ' Read', '  src/index.ts'])
 
@@ -92,11 +93,20 @@ describe('transcript components respect the render width', () => {
         content: [{ content: [{ type: 'text', text: 'line one\nline two' }], isError: false }],
       },
     } as never)
+    const collapsed = render(pending, 48)
+    assert.equal(collapsed.length, 2)
+    assert.match(collapsed[1]!, /• Read .*src\/index\.ts.*Ctrl\+O to expand/)
+    pending.setVisibility('expanded')
     const settled = render(pending, 48)
     assert.match(settled[1]!, /^╭─── • Read /)
     assert.match(settled[2]!, /^├─── Input /)
     assert.match(settled[3]!, /src\/index\.ts/)
     assert.match(settled[4]!, /^├─── Output /)
+  })
+
+  it('toggles tool cards only between collapsed and expanded', () => {
+    assert.equal(nextToolCardVisibility('collapsed'), 'expanded')
+    assert.equal(nextToolCardVisibility('expanded'), 'collapsed')
   })
   it('shows the command or query under the tool title', () => {
     const pwsh = new ToolCardComponent('pwsh', JSON.stringify({ command: 'Get-Process -Name node' }), 6, palette)
@@ -131,6 +141,7 @@ describe('transcript components respect the render width', () => {
         content: [{ content: [{ type: 'text', text: 'done' }], isError: false }],
       },
     } as never)
+    card.setVisibility('expanded')
     const rows = render(card, 40)
     for (const row of rows) assert.ok(visibleWidth(row) <= 40, `width=${visibleWidth(row)} row=${JSON.stringify(row)}`)
     const inputRows = rows.filter(row => row.includes('aaa'))
@@ -169,6 +180,7 @@ describe('transcript components respect the render width', () => {
         content: [{ content: [{ type: 'text', text: 'done' }], isError: false }],
       },
     } as never)
+    card.setVisibility('expanded')
     const rows = render(card, 60)
     assert.match(rows[1]!, /^╭─── • Str Replace Editor /)
     assert.match(rows[2]!, /^├─── Input /)
@@ -179,7 +191,40 @@ describe('transcript components respect the render width', () => {
     assert.match(rows[7]!, /^├─── Output /)
   })
 
-  it('renders an official apply_patch Code Dispatch child as a nested diff', () => {
+  it('renders raw apply_patch arguments as a themed file-grouped patch', () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/a.ts',
+      '@@',
+      ' const keep = true',
+      '-const value = 1',
+      '+const value = 2',
+      '*** Add File: src/b.ts',
+      '+export const added = true',
+      '*** End Patch',
+    ].join('\n')
+    const themedPalette = createPalette(true, 'dark', true)
+    const card = new ToolCardComponent('apply_patch', JSON.stringify({ patch }), 8, themedPalette)
+    const pending = render(card, 72).join('\n')
+    assert.match(pending, /Apply Patch/)
+    assert.ok(pending.includes('2 files (+2 -1)'))
+    assert.equal(pending.includes('*** Begin Patch'), false)
+
+    card.updateDispatch([{ type: 'text', text: 'Applied patch to 2 files.' }], false)
+    card.setVisibility('expanded')
+    const rows = render(card, 72)
+    const output = rows.join('\n')
+    assert.ok(rows.some(row => row.includes('Patch')))
+    assert.ok(rows.some(row => row.includes('Update src/a.ts')))
+    assert.ok(rows.some(row => row.includes('Add src/b.ts')))
+    assert.ok(rows.some(row => row.includes(themedPalette.error('- const value = 1'))))
+    assert.ok(rows.some(row => row.includes(themedPalette.success('+ const value = 2'))))
+    assert.ok(rows.some(row => row.includes(themedPalette.success('+ export const added = true'))))
+    assert.equal(output.includes('*** Begin Patch'), false)
+    assert.equal(output.includes('*** Update File'), false)
+  })
+
+  it('renders a dispatched child without a redundant successful REPL wrapper', () => {
     const root = new ToolCardComponent('repl', JSON.stringify({
       code: 'await tools.apply_patch({ patch })',
     }), 8, palette)
@@ -202,15 +247,30 @@ describe('transcript components respect the render width', () => {
       diffs: [{ path: 'src/a.ts', oldText: 'const oldValue = 1', newText: 'const newValue = 2' }],
     })
     root.updateDispatch([{ type: 'text', text: 'Applied patch to 1 file.' }], false)
+    root.setVisibility('expanded')
 
     const rows = render(root, 72)
-    assert.match(rows[1]!, /^╭─── • Repl /)
+    assert.equal(rows.some(row => /• Repl/.test(row)), false)
     assert.ok(rows.some(row => /• Apply patch/.test(row)))
     assert.ok(rows.some(row => /├─── Diff/.test(row)))
     assert.ok(rows.some(row => /src\/a\.ts/.test(row)))
     assert.ok(rows.some(row => /- const oldValue = 1/.test(row)))
     assert.ok(rows.some(row => /\+ const newValue = 2/.test(row)))
     assert.equal(rows.some(row => row.includes('*** Begin Patch')), false)
+  })
+
+  it('keeps a failed REPL wrapper above its dispatched child', () => {
+    const root = new ToolCardComponent('repl', '{"code":"await tools.read(...)"}', 8, palette)
+    const child = new ToolCardComponent('read', '{"file_path":"src/a.ts"}', 8, palette)
+    root.addSubCall(child)
+    child.updateDispatch([{ type: 'text', text: 'file contents' }], false)
+    root.updateDispatch([{ type: 'text', text: 'dispatch failed' }], true)
+    root.setVisibility('expanded')
+
+    const rows = render(root, 72)
+    assert.ok(rows.some(row => /Repl/.test(row)))
+    assert.ok(rows.some(row => /Read/.test(row)))
+    assert.ok(rows.some(row => /dispatch failed/.test(row)))
   })
 
   it('keeps a nested edit call distinct while reusing the standard diff view', () => {
@@ -224,6 +284,7 @@ describe('transcript components respect the render width', () => {
     root.addSubCall(edit)
     edit.updateDispatch([{ type: 'text', text: 'Edited src/a.ts.' }], false)
     root.updateDispatch([{ type: 'text', text: 'Edited src/a.ts.' }], false)
+    root.setVisibility('expanded')
 
     const rows = render(root, 72)
     assert.ok(rows.some(row => /• Edit/.test(row)))
@@ -247,6 +308,7 @@ describe('transcript components respect the render width', () => {
         content: [{ content: [{ type: 'text', text: 'done' }], isError: false }],
       },
     } as never)
+    card.setVisibility('expanded')
     const settled = render(card, 60)
     assert.ok(settled.every(row => !row.includes('\t') && !row.includes('\r') && !row.includes('\x1b')))
     assert.ok(settled.some(row => row.includes('indented old')))
@@ -260,6 +322,7 @@ describe('transcript components respect the render width', () => {
         content: [{ content: [{ type: 'text', text: 'first\r\nsecond\rthird' }], isError: false }],
       },
     } as never)
+    powershell.setVisibility('expanded')
     const rows = render(powershell, 48)
     assert.ok(rows.every(row => !row.includes('\r')))
     assert.ok(rows.some(row => row.includes('first')))
@@ -280,6 +343,7 @@ describe('transcript components respect the render width', () => {
         }],
       },
     } as never)
+    unsafe.setVisibility('expanded')
 
     const output = render(unsafe, 64).join('\n')
     assert.equal(output.includes('\x1b'), false)
@@ -307,16 +371,26 @@ describe('transcript components respect the render width', () => {
     assert.ok(reasoning.some(row => row.includes('private model reasoning')))
     assert.ok(reasoning.every(row => !/[╭╮╰╯│]/.test(row)))
   })
-  it('subagent panel renders descriptor entries as a tree-like list', () => {
+  it('subagent panel opens a tree-like list from a compact down-arrow hint', () => {
     const panel = new SubagentPanelComponent(palette)
     assert.deepEqual(render(panel, 40), [])
-    panel.add({ provider: 'in-process', label: 'child-a', mode: 'one-shot' })
-    panel.add({ provider: 'in-process', label: 'child-b', mode: 'continuable' })
-    const rows = render(panel, 40)
+    panel.add({ id: 'a', provider: 'in-process', label: 'child-a', mode: 'one-shot', status: 'running' })
+    panel.add({ id: 'b', provider: 'in-process', label: 'child-b', mode: 'continuable', status: 'idle' })
+    panel.setJobs([{ id: 'pwsh-1', label: 'Run checks', status: 'running' }])
+    assert.deepEqual(render(panel, 80), ['agents ● 1 running ○ 1 idle · jobs ● 1 running ◐ 0 stopping · ↓ select'])
+    assert.equal(panel.hasEntries(), true)
+    panel.setExpanded(true)
+    const rows = render(panel, 80)
+    assert.ok(rows.some(row => row.includes('Background tasks')))
     assert.ok(rows.some(row => row.includes('Subagents')))
-    assert.ok(rows.some(row => row.includes('├─ child-a · one-shot')))
-    assert.ok(rows.some(row => row.includes('└─ child-b · continuable')))
-    for (const row of rows) assert.ok(visibleWidth(row) <= 40)
+    assert.ok(rows.some(row => row.includes('← Main agent')))
+    assert.ok(rows.some(row => row.includes('├─ child-a · one-shot · running')))
+    assert.ok(rows.some(row => row.includes('└─ child-b · continuable · idle')))
+    assert.ok(rows.some(row => row.includes('Jobs')))
+    assert.ok(rows.some(row => row.includes('└─ pwsh-1 · running · Run checks')))
+    for (const row of rows) assert.ok(visibleWidth(row) <= 80)
+    panel.setExpanded(false)
+    assert.equal(panel.isExpanded(), false)
     panel.clear()
     assert.deepEqual(render(panel, 40), [])
   })

@@ -1,11 +1,17 @@
 import type { AgentStatus } from '@deepseek-ai/dsh-agent'
 import { matchesKey } from '@earendil-works/pi-tui'
 
-/** Escape cancels only a running turn while the main composer owns input. */
-export function shouldCancelRunningTurn(
+export type RunningTurnKeyAction = 'clear-draft' | 'cancel'
+
+/** Resolve Ctrl+C/Escape without letting a non-empty draft stop the running turn. */
+export function runningTurnKeyAction(
   data: string,
   status: AgentStatus | undefined,
   editorFocused: boolean,
-): boolean {
-  return editorFocused && status === 'running' && matchesKey(data, 'escape')
+  draft: string,
+): RunningTurnKeyAction | undefined {
+  if (!editorFocused || status !== 'running') return undefined
+  if (matchesKey(data, 'ctrl+c')) return draft === '' ? 'cancel' : 'clear-draft'
+  if (matchesKey(data, 'escape')) return 'cancel'
+  return undefined
 }

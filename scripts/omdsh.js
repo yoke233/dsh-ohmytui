@@ -225,13 +225,9 @@ function ensureProfile() {
     return
   }
 
-  if (compareVersions(installedVersion, ownVersion) > 0) {
-    process.stderr.write(
-      `omdsh: 提示：profile 内运行的是 v${installedVersion}，而启动器是 v${ownVersion}。` +
-      `启动器较旧，跳过自动更新。\n`,
-    )
-    return
-  }
+  // A launcher older than the already-installed Profile bundle has nothing to
+  // repair or upgrade. Keep this normal bootstrap decision silent.
+  if (compareVersions(installedVersion, ownVersion) > 0) return
 
   process.stderr.write(
     `omdsh: 检测到 profile 内 dsh-omp-tui 为 v${installedVersion}，正在自动更新到 v${ownVersion}…\n`,
@@ -295,7 +291,7 @@ function runGeneration(innerArgs) {
     fs.watchFile(handoffPath, { interval: 300 }, (curr) => {
       if (announced || curr.mtimeMs === 0) return
       announced = true
-      process.stderr.write('\nomdsh: 收到重载请求，正在关闭当前进程…\n')
+      process.stderr.write('\nomdsh: 正在重启 TUI 并恢复当前会话…\n')
     })
     const finish = (outcome) => {
       fs.unwatchFile(handoffPath)
@@ -334,7 +330,6 @@ for (;;) {
   if (result.code === RELOAD_EXIT_CODE) {
     const nextArgs = readHandoffArgs()
     if (nextArgs !== undefined) {
-      process.stderr.write('omdsh: 正在启动新一代进程并续接会话…\n')
       // 重启前重跑引导检查：profile 内刚更新的插件版本由新一代进程载入。
       ensureProfile()
       innerArgs = nextArgs

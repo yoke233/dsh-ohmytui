@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { foldSessionView, hasConversationData, recordConversationPreset } from '../src/session-lifecycle.ts'
+import { foldSessionView, hasConversationData, liveChildSubagents, recordConversationPreset } from '../src/session-lifecycle.ts'
 
 function blankSession(idValue: string, agentPreset?: string): Session {
   const id = SessionId(idValue)
@@ -62,6 +62,46 @@ describe('session lifecycle', () => {
       tokenTotals: { inputTokens: 0, outputTokens: 0 },
       subagents: [],
     })
+  })
+
+  it('lists direct live subagents from their own descriptor suffix', () => {
+    const parentId = SessionId('parent')
+    const firstId = SessionId('first-child')
+    const secondId = SessionId('second-child')
+    const agents = [
+      {
+        id: secondId,
+        status: 'idle',
+        options: { provider: 'task' },
+        session: {
+          header: { id: secondId, parentSession: parentId, origin: 'subagent', createdAt: 2, seedLength: 1 },
+          events: [
+            { type: 'subagent/descriptor', data: { label: 'seed-label', provider: 'old', mode: 'one-shot' } },
+            { type: 'subagent/descriptor', data: { label: 'review', mode: 'continuable' } },
+          ],
+        },
+      },
+      {
+        id: firstId,
+        status: 'running',
+        options: { provider: 'research' },
+        session: {
+          header: { id: firstId, parentSession: parentId, origin: 'subagent', createdAt: 1, seedLength: 0 },
+          events: [{ type: 'subagent/descriptor', data: { label: 'research', mode: 'one-shot' } }],
+        },
+      },
+      {
+        id: SessionId('unrelated'),
+        status: 'running',
+        options: {},
+        session: { header: { id: SessionId('unrelated'), createdAt: 0 }, events: [] },
+      },
+    ]
+
+    assert.deepEqual(liveChildSubagents(agents as never, parentId), [
+      { id: 'first-child', label: 'research', provider: 'research', mode: 'one-shot', status: 'running' },
+      { id: 'second-child', label: 'review', provider: 'task', mode: 'continuable', status: 'idle' },
+    ])
   })
 
   it('does not append when the creation header already records the preset', () => {
