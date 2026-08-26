@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import type { AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions } from '@earendil-works/pi-tui'
 import {
   SkillAwareAutocompleteProvider,
+  observeAutocompleteSelection,
   parseSkillInvocation,
   syncSkillCommands,
 } from '../src/autocomplete.ts'
+import { completedThemeCandidate, isThemeAutocompleteContext } from '../src/theme-command.ts'
 
 function innerStub(suggestions: AutocompleteSuggestions | null): AutocompleteProvider {
   return {
@@ -92,5 +94,56 @@ describe('skill slash commands', () => {
     }])
 
     assert.deepEqual(commands.map(command => command.name), ['help', 'skill:new'])
+  })
+})
+
+describe('theme autocomplete preview', () => {
+  it('recognizes direct and scheme-specific theme selection contexts', () => {
+    assert.equal(isThemeAutocompleteContext('/theme light'), true)
+    assert.equal(isThemeAutocompleteContext('/theme light '), true)
+    assert.equal(isThemeAutocompleteContext('/theme light light-github'), true)
+    assert.equal(isThemeAutocompleteContext('/theme mode dynamic'), false)
+    assert.equal(isThemeAutocompleteContext('/model light-github'), false)
+    assert.equal(completedThemeCandidate('/theme light-github '), 'light-github')
+    assert.equal(completedThemeCandidate('/theme light light-github'), 'light-github')
+    assert.equal(completedThemeCandidate('/theme mode dynamic'), undefined)
+  })
+
+  it('forwards initial and navigated selections and reports closing', () => {
+    const first = { value: 'light-forest', label: 'Light Forest' }
+    const second = { value: 'light-github', label: 'Light Github' }
+    let text = '/theme light'
+    let selected = first
+    let selectionListener: ((item: AutocompleteItem) => void) | undefined
+    let closes = 0
+    const editor = {
+      getText: () => text,
+      createAutocompleteList: () => ({
+        get onSelectionChange() { return selectionListener },
+        set onSelectionChange(listener) { selectionListener = listener },
+        getSelectedItem: () => selected,
+      }),
+      cancelAutocomplete: () => { closes += 1 },
+    }
+    const seen: string[] = []
+    const dispose = observeAutocompleteSelection(editor, {
+      onSelection: (value, item) => seen.push(
+        value + ':' + item.value,
+      ),
+      onClose: () => { closes += 10 },
+    })
+
+    editor.createAutocompleteList('', [first, second])
+    selected = second
+    selectionListener?.(second)
+    text = '/theme light light-github'
+    editor.cancelAutocomplete()
+
+    assert.deepEqual(seen, [
+      '/theme light:light-forest',
+      '/theme light:light-github',
+    ])
+    assert.equal(closes, 11)
+    dispose()
   })
 })

@@ -91,6 +91,7 @@ import {
 } from './permission.ts'
 import {
   SkillAwareAutocompleteProvider,
+  observeAutocompleteSelection,
   parseSkillInvocation,
   syncSkillCommands,
 } from './autocomplete.ts'
@@ -108,6 +109,8 @@ import {
   type ThemeMode,
   type ThemeOverride,
 } from './theme.ts'
+import { completedThemeCandidate, isThemeAutocompleteContext, resolveThemeCommand } from './theme-command.ts'
+import { redrawThemePreview } from './theme-preview-render.ts'
 import {
   SESSION_TITLE_SETTINGS_NAMESPACE,
   TUI_SETTINGS_NAMESPACE,
@@ -1131,6 +1134,34 @@ export class Tui extends Service {
       refreshCompacting()
       transcriptStart = recentTranscriptStart(events.length)
       renderTranscriptWindow(transcriptStart, 'bottom')
+    }
+
+    let previewThemeId: string | undefined
+    const repaintTheme = (selectedPreview?: string, rebuild = false): void => {
+      const override = selectedPreview === undefined
+        ? themeOverride()
+        : { ...themeOverride(), mode: 'selected' as const, selectedId: selectedPreview }
+      Object.assign(palette, createPalette(resolved.theme.color, currentScheme, truecolor, override))
+      Object.assign(mdTheme, markdownTheme(palette))
+      if (rebuild) rebuildTranscript()
+      setStatus(agent?.status ?? 'idle')
+      if (rebuild) {
+        ui.requestRender()
+      } else {
+        // Theme preview recolors nearly every row. Reset the visible viewport so
+        // main-screen scrollback cannot leave an old composer/footer in view.
+        redrawThemePreview(terminal, ui)
+      }
+    }
+    const previewTheme = (id: string): void => {
+      if (previewThemeId === id || findTheme(id) === undefined) return
+      previewThemeId = id
+      repaintTheme(id)
+    }
+    const clearThemePreview = (): void => {
+      if (previewThemeId === undefined) return
+      previewThemeId = undefined
+      repaintTheme()
     }
 
     const loadOlderTranscript = (): void => {
@@ -2803,8 +2834,8 @@ export class Tui extends Service {
 
       if (line === '/theme' || line.startsWith('/theme ')) {
         const arg = line.slice('/theme'.length).trim()
-        const parts = arg.split(/\s+/).filter(Boolean)
         const applyTheme = async (): Promise<void> => {
+          previewThemeId = undefined
           if (tuiSettings !== undefined) {
             try {
               await tuiSettings.update({ themeMode, themeDark, themeLight, themeSelected })
@@ -2813,68 +2844,42 @@ export class Tui extends Service {
               return
             }
           }
-          Object.assign(palette, createPalette(resolved.theme.color, currentScheme, truecolor, themeOverride()))
-          Object.assign(mdTheme, markdownTheme(palette))
-          rebuildTranscript()
-          setStatus(current.status)
-          ui.requestRender()
+          repaintTheme(undefined, true)
         }
-        if (parts.length === 0) {
-          const modeText = themeMode === 'dynamic' ? t('settingsThemeModeDynamic') : t('settingsThemeModeSelected')
-          const rows = [
-            palette.bold(palette.accent(`${t('themeCurrent')}: ${modeText}`)),
-            '',
-            ...(themeMode === 'dynamic'
-              ? [
-                  `${palette.dim(t('settingsThemeDark'))}  ${themeDark}`,
-                  `${palette.dim(t('settingsThemeLight'))}  ${themeLight}`,
-                ]
-              : [`${palette.dim(t('settingsThemeSelectedItem'))}  ${themeSelected}`]),
-            '',
-            ...BUILTIN_THEMES.map(theme =>
-              ` ${theme.id} — ${theme.label}: ${theme.scheme}`),
-            ...themeCustom === undefined
-              ? [palette.dim(` ${t('themeCustomNote')}`)]
-              : [palette.dim(` ${t('themeCurrent')}: + custom overrides`), ''],
-          ]
-          chat.addChild(new StaticCardComponent(rows, palette))
-          ui.requestRender()
+        const result = resolveThemeCommand(arg, {
+          mode: themeMode,
+          dark: themeDark,
+          light: themeLight,
+          selected: themeSelected,
+        }, id => findTheme(id) !== undefined)
+        if (result.kind === 'summary') {
+          const modeText = result.state.mode === 'dynamic' ? t('settingsThemeModeDynamic') : t('settingsThemeModeSelected')
+          const selectionText = result.state.mode === 'dynamic'
+            ? `${result.state.dark} / ${result.state.light}`
+            : result.state.selected
+          appendNotice(`${t('themeCurrent')}: ${modeText} · ${selectionText}`, 'info')
           return
         }
-        const command = parts[0]!
-        if (command === 'mode') {
-          const next = parts[1]
-          if (next !== 'dynamic' && next !== 'selected') {
-            appendNotice(t('noticeThemeModeUnknown', { name: next ?? '' }), 'warning')
-            return
-          }
-          themeMode = next
-          await applyTheme()
-          appendNotice(t('noticeThemeModeSet', { mode: t(next === 'dynamic' ? 'settingsThemeModeDynamic' : 'settingsThemeModeSelected') }), 'info')
+        if (result.kind === 'error') {
+          appendNotice(result.reason === 'mode'
+            ? t('noticeThemeModeUnknown', { name: result.value })
+            : t('noticeThemeUnknown', { name: result.value }), 'warning')
           return
         }
-        if (command === 'dark' || command === 'light') {
-          const id = parts[1]
-          if (id === undefined || findTheme(id) === undefined) {
-            appendNotice(t('noticeThemeUnknown', { name: id ?? '' }), 'warning')
-            return
-          }
-          themeMode = 'dynamic'
-          if (command === 'dark') themeDark = id
-          if (command === 'light') themeLight = id
-          await applyTheme()
-          appendNotice(command === 'dark' ? t('noticeThemeDarkSet', { name: id }) : t('noticeThemeLightSet', { name: id }), 'info')
-          return
-        }
-        const known = findTheme(arg)
-        if (known === undefined) {
-          appendNotice(t('noticeThemeUnknown', { name: arg }), 'warning')
-          return
-        }
-        themeMode = 'selected'
-        themeSelected = known.id
+        themeMode = result.state.mode
+        themeDark = result.state.dark
+        themeLight = result.state.light
+        themeSelected = result.state.selected
         await applyTheme()
-        appendNotice(t('noticeThemeSet', { name: themeSelected }), 'info')
+        if (result.changed === 'mode') {
+          appendNotice(t('noticeThemeModeSet', { mode: t(result.value === 'dynamic' ? 'settingsThemeModeDynamic' : 'settingsThemeModeSelected') }), 'info')
+        } else if (result.changed === 'dark') {
+          appendNotice(t('noticeThemeDarkSet', { name: result.value }), 'info')
+        } else if (result.changed === 'light') {
+          appendNotice(t('noticeThemeLightSet', { name: result.value }), 'info')
+        } else {
+          appendNotice(t('noticeThemeSet', { name: result.value }), 'info')
+        }
         return
       }
       if (line === '/help' || line.startsWith('/help ')) {
@@ -3445,6 +3450,13 @@ export class Tui extends Service {
         commandHintText = commandInputHint(editor.getText(), commandEntries)
         ui.requestRender()
       }
+      observeAutocompleteSelection(editor, {
+        onSelection: (text, item) => {
+          if (isThemeAutocompleteContext(text) && findTheme(item.value) !== undefined) previewTheme(item.value)
+          else clearThemePreview()
+        },
+        onClose: clearThemePreview,
+      })
       const refreshCommandEntries = (): void => {
         const current = agent ?? liveAgent
         const skills = commandEntries.filter(command => command.name.startsWith('skill:'))
@@ -3482,6 +3494,9 @@ export class Tui extends Service {
       void refreshSkillCommands()
       editor.onChange = (text: string): void => {
         commandHintText = commandInputHint(text, commandEntries)
+        const candidate = completedThemeCandidate(text)
+        if (candidate !== undefined && findTheme(candidate) !== undefined) previewTheme(candidate)
+        else clearThemePreview()
         ui.requestRender()
       }
 
@@ -3659,11 +3674,7 @@ export class Tui extends Service {
       offScheme = ui.onTerminalColorSchemeChange((scheme) => {
         try {
         currentScheme = scheme
-        Object.assign(palette, createPalette(resolved.theme.color, scheme, truecolor, themeOverride()))
-        Object.assign(mdTheme, markdownTheme(palette))
-        rebuildTranscript()
-        setStatus(agent?.status ?? 'idle')
-        ui.requestRender()
+        repaintTheme(previewThemeId, previewThemeId === undefined)
         } catch (error: unknown) {
           appendNotice(t('noticeEventRenderFailed', { error: errorChain(error) }), 'error')
         }

@@ -23,6 +23,62 @@ export interface SkillCommandCandidate {
   invocation: { userInvocable: boolean }
 }
 
+interface AutocompleteSelectionList {
+  onSelectionChange?: (item: AutocompleteItem) => void
+  getSelectedItem(): AutocompleteItem | null
+}
+
+interface SelectionObservableEditor {
+  getText(): string
+}
+
+interface EditorAutocompleteInternals {
+  createAutocompleteList(prefix: string, items: AutocompleteItem[]): AutocompleteSelectionList
+  cancelAutocomplete(): void
+}
+
+export interface AutocompleteSelectionObserver {
+  onSelection: (text: string, item: AutocompleteItem) => void
+  onClose?: () => void
+}
+
+/**
+ * Observe the SelectList owned by pi-tui's Editor.
+ *
+ * SelectList exposes selection changes, but Editor does not currently forward
+ * them. Keep this compatibility shim isolated here so theme preview can be
+ * removed once the upstream Editor offers a public observer.
+ */
+export function observeAutocompleteSelection(
+  editor: SelectionObservableEditor,
+  observer: AutocompleteSelectionObserver,
+): () => void {
+  const internals = editor as SelectionObservableEditor & EditorAutocompleteInternals
+  const originalCreate = internals.createAutocompleteList.bind(editor)
+  const originalCancel = internals.cancelAutocomplete.bind(editor)
+
+  internals.createAutocompleteList = (prefix, items) => {
+    const list = originalCreate(prefix, items)
+    const previous = list.onSelectionChange
+    list.onSelectionChange = (item) => {
+      previous?.(item)
+      observer.onSelection(editor.getText(), item)
+    }
+    const selected = list.getSelectedItem()
+    if (selected !== null) observer.onSelection(editor.getText(), selected)
+    return list
+  }
+  internals.cancelAutocomplete = () => {
+    originalCancel()
+    observer.onClose?.()
+  }
+
+  return () => {
+    internals.createAutocompleteList = originalCreate
+    internals.cancelAutocomplete = originalCancel
+  }
+}
+
 /** Split `/skill:<name> [request]` without treating the request as part of the name. */
 export function parseSkillInvocation(line: string): { name: string; request: string } {
   const invocation = line.slice('/skill:'.length).trim()

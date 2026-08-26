@@ -446,9 +446,10 @@ export function markdownTheme(palette: Palette): MarkdownTheme {
 
 /** Derive the pi-tui select-list theme from a role palette. */
 export function selectTheme(palette: Palette): SelectListTheme {
+  const selected = (text: string): string => palette.userMessageBg(palette.accent(text))
   return {
-    selectedPrefix: palette.accent,
-    selectedText: palette.accent,
+    selectedPrefix: selected,
+    selectedText: selected,
     description: palette.dim,
     scrollInfo: palette.dim,
     noMatch: palette.warning,

@@ -10,6 +10,7 @@ import {
   frameBlock,
   frameBlockSections,
   resolveThemeId,
+  selectTheme,
 } from '../src/theme.ts'
 import { THEME_DATA } from '../src/theme-data.ts'
 
@@ -71,6 +72,13 @@ describe('frameBlock', () => {
 })
 
 describe('palette spec selection', () => {
+  it('uses a subtle theme background for selected autocomplete text', () => {
+    const enabled = createPalette(true, 'dark', true)
+    const selected = selectTheme(enabled).selectedText('x')
+    assert.match(selected, /\u001b\[48;2;/u)
+    assert.match(selected, /\u001b\[38;2;/u)
+  })
+
   it('emits truecolor SGR on dark truecolor terminals', () => {
     const enabled = createPalette(true, 'dark', true)
     assert.equal(enabled.accent('x'), '\u001b[38;2;250;179;135mx\u001b[39m')
