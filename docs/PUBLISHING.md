@@ -101,7 +101,6 @@ pnpm pack --dry-run
 - `lib/startup.js`
 - `lib/prompt.js`
 - `cordis.patch.yml`
-- `patches/NOTICE.md`
 - `docs/INSTALL.md`
 - `LICENSE`
 
@@ -140,5 +139,4 @@ npm publish --access public
 `package.json` 已设置 `publishConfig.access = public`。发布前必须确认包名 `dsh-omp-tui` 仍可用、repository/homepage/bugs 已指向真实仓库，并检查 `pnpm pack --dry-run` 内容。
 
 npm 发布不会替代 GitHub 的 `dsh-plugin` topic；topic 仍然是官方 README 指定的插件发现方式。
-
 

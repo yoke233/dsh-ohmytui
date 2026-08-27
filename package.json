@@ -1,7 +1,7 @@
 {
   "name": "dsh-omp-tui",
   "description": "OMP-styled interactive terminal profile bundle for DeepSeek Harness",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "publishConfig": {
     "access": "public"
   },
@@ -60,7 +60,6 @@
     "docs/examples/hooks.example.json",
     "lib/*.js",
     "lib/wechat",
-    "patches",
     "scripts/omdsh",
     "scripts/omdsh.cmd",
     "scripts/omdsh.js",

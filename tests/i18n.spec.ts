@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { createTranslator, MESSAGES, type MessageKey } from '../src/i18n.ts'
+import { createTranslator, displayErrorCode, MESSAGES, type MessageKey } from '../src/i18n.ts'
 
 describe('i18n dictionaries', () => {
   it('keeps every locale on the exact same key set', () => {
@@ -17,6 +17,13 @@ describe('i18n dictionaries', () => {
         assert.ok(!/^\{\w+\}$/.test(value), `${locale}.${key} is only a placeholder`)
       }
     }
+  })
+})
+
+describe('error code display', () => {
+  it('removes the upstream PI namespace', () => {
+    assert.equal(displayErrorCode('PI_AI_ERROR'), 'AI_ERROR')
+    assert.equal(displayErrorCode('RATE_LIMIT'), 'RATE_LIMIT')
   })
 })
 

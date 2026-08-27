@@ -1,12 +1,15 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
-import { CombinedAutocompleteProvider, Container, Editor, visibleWidth } from '@earendil-works/pi-tui'
+import { CombinedAutocompleteProvider, Container, visibleWidth } from '@earendil-works/pi-tui'
+import { PromptEditor } from '../src/components/prompt-editor.ts'
 import { createPalette, markdownTheme } from '../src/theme.ts'
 import { createTranslator } from '../src/i18n.ts'
 import {
   AssistantStreamController,
+  BackgroundJobViewComponent,
   ContextCardComponent,
+  ErrorMessageComponent,
   HeaderComponent,
   StaticCardComponent,
   SubagentPanelComponent,
@@ -55,6 +58,13 @@ describe('transcript components respect the render width', () => {
     }
   })
 
+  it('renders turn failures as borderless full-width surfaces', () => {
+    const rows = render(new ErrorMessageComponent(['回合失败（AI_ERROR）：overloaded'], palette), 64)
+    assert.ok(rows.some(row => row.includes('回合失败')))
+    assert.ok(rows.every(row => visibleWidth(row) === 64))
+    assert.ok(rows.every(row => !/[╭╮╰╯│]/.test(row)))
+  })
+
   it('pads user messages horizontally and vertically', () => {
     const rows = render(new UserMessageComponent('hello', palette, mdTheme), 20)
     assert.equal(rows.length, 3)
@@ -85,10 +95,18 @@ describe('transcript components respect the render width', () => {
     }
   })
 
-  it('uses compact pending and collapsed statuses with expanded sections', () => {
+  it('keeps pending and completed cards compact until explicitly expanded', () => {
     const pending = new ToolCardComponent('read', '{"i":"Reading entrypoint","path":"src/index.ts"}', 6, palette)
-    assert.deepEqual(render(pending, 48), ['', ' Read', '  src/index.ts'])
+    assert.deepEqual(render(pending, 48), ['', ' Read · src/index.ts · (Ctrl+O to expand)'])
 
+    const repl = new ToolCardComponent('repl', JSON.stringify({
+      code: 'const result = await tools.read({ path: "src/index.ts" })',
+    }), 6, palette)
+    const pendingReplRows = render(repl, 32)
+    assert.equal(pendingReplRows.length, 2)
+    repl.setVisibility('expanded')
+    const expandedReplRows = render(repl, 32)
+    assert.ok(expandedReplRows.slice(2).every(row => visibleWidth(row) <= 30))
     pending.updateResult({
       message: {
         content: [{ content: [{ type: 'text', text: 'line one\nline two' }], isError: false }],
@@ -202,13 +220,13 @@ describe('transcript components respect the render width', () => {
     assert.equal(nextToolCardVisibility('collapsed'), 'expanded')
     assert.equal(nextToolCardVisibility('expanded'), 'collapsed')
   })
-  it('shows the command or query under the tool title', () => {
+  it('shows the command or query in the compact tool summary', () => {
     const pwsh = new ToolCardComponent('pwsh', JSON.stringify({ command: 'Get-Process -Name node' }), 6, palette)
-    assert.deepEqual(render(pwsh, 48), ['', ' Pwsh', '  Get-Process -Name node'])
+    assert.match(render(pwsh, 80)[1]!, / Pwsh · Get-Process -Name node/)
     const bash = new ToolCardComponent('bash', JSON.stringify({ description: 'list files', command: 'ls -la' }), 6, palette)
-    assert.deepEqual(render(bash, 48), ['', ' Bash', '  ls -la'])
+    assert.match(render(bash, 80)[1]!, / Bash · ls -la/)
     const search = new ToolCardComponent('web_search', JSON.stringify({ query: 'dsh performance' }), 6, palette)
-    assert.deepEqual(render(search, 48), ['', ' Web Search', '  dsh performance'])
+    assert.match(render(search, 80)[1]!, / Web Search · dsh performance/)
   })
 
   it('does not repeat a short single-line argument below the expanded summary', () => {
@@ -223,18 +241,18 @@ describe('transcript components respect the render width', () => {
 
   it('falls back to Unknown for an empty tool name', () => {
     const empty = new ToolCardComponent('', '{}', 6, palette)
-    assert.deepEqual(render(empty, 48), ['', ' Unknown', '  {}'])
+    assert.match(render(empty, 48)[1]!, / Unknown · \{\}/)
   })
 
   it('shows path or description for read/write/edit/run_code tools', () => {
     const read = new ToolCardComponent('read', JSON.stringify({ file_path: 'src/a.ts' }), 6, palette)
-    assert.deepEqual(render(read, 48), ['', ' Read', '  src/a.ts'])
+    assert.match(render(read, 48)[1]!, / Read · src\/a\.ts/)
     const write = new ToolCardComponent('write', JSON.stringify({ path: 'src/b.ts' }), 6, palette)
-    assert.deepEqual(render(write, 48), ['', ' Write', '  src/b.ts'])
+    assert.match(render(write, 48)[1]!, / Write · src\/b\.ts/)
     const edit = new ToolCardComponent('edit', JSON.stringify({ file_path: 'src/c.ts' }), 6, palette)
-    assert.deepEqual(render(edit, 48), ['', ' Edit', '  src/c.ts'])
+    assert.match(render(edit, 48)[1]!, / Edit · src\/c\.ts/)
     const code = new ToolCardComponent('run_code', JSON.stringify({ description: 'test snippet' }), 6, palette)
-    assert.deepEqual(render(code, 48), ['', ' Run Code', '  test snippet'])
+    assert.match(render(code, 48)[1]!, / Run Code · test snippet/)
   })
 
   it('wraps long commands in the input section instead of truncating', () => {
@@ -261,15 +279,15 @@ describe('transcript components respect the render width', () => {
       old_str: 'old line',
       new_str: 'new line',
     }), 6, palette)
-    assert.deepEqual(render(card, 60), [
-      '',
-      ' Str Replace Editor',
-      '  path: D:/src/a.ts',
-      '  old_str:',
-      '  old line',
-      '  new_str:',
-      '  new line',
-    ])
+    assert.equal(render(card, 60).length, 2)
+    card.setVisibility('expanded')
+    const rows = render(card, 60)
+    assert.match(rows[1]!, /^ Str Replace Editor .*Ctrl\+O to collapse/)
+    assert.ok(rows.includes('  path: D:/src/a.ts'))
+    assert.ok(rows.includes('  old_str:'))
+    assert.ok(rows.includes('  old line'))
+    assert.ok(rows.includes('  new_str:'))
+    assert.ok(rows.includes('  new line'))
   })
 
   it('renders str_replace_editor edits as a diff section', () => {
@@ -328,7 +346,24 @@ describe('transcript components respect the render width', () => {
     assert.equal(output.includes('*** Update File'), false)
   })
 
-  it('renders a dispatched child without a redundant successful REPL wrapper', () => {
+  it('keeps the REPL tree height stable when running calls complete', () => {
+    const root = new ToolCardComponent('repl', JSON.stringify({
+      code: 'await tools.read({ path: "src/a.ts" })',
+    }), 8, palette)
+    const child = new ToolCardComponent('read', '{"path":"src/a.ts"}', 8, palette)
+    root.addSubCall(child)
+
+    const runningRows = render(root, 72)
+    assert.ok(runningRows.some(row => /Repl/.test(row)))
+    assert.ok(runningRows.some(row => /Read/.test(row)))
+
+    root.updateDispatch([{ type: 'text', text: 'done' }], false)
+    child.updateDispatch([{ type: 'text', text: 'file contents' }], false)
+    const completedRows = render(root, 72)
+    assert.equal(completedRows.length, runningRows.length)
+  })
+
+  it('keeps a successful REPL wrapper above its dispatched child', () => {
     const root = new ToolCardComponent('repl', JSON.stringify({
       code: 'await tools.apply_patch({ patch })',
     }), 8, palette)
@@ -354,7 +389,7 @@ describe('transcript components respect the render width', () => {
     root.setVisibility('expanded')
 
     const rows = render(root, 72)
-    assert.equal(rows.some(row => /✓ Repl/.test(row)), false)
+    assert.ok(rows.some(row => /✓ Repl/.test(row)))
     assert.ok(rows.some(row => /✓ Apply patch/.test(row)))
     assert.ok(rows.some(row => /src\/a\.ts/.test(row)))
     assert.ok(rows.some(row => /- const oldValue = 1/.test(row)))
@@ -480,22 +515,50 @@ describe('transcript components respect the render width', () => {
     panel.add({ id: 'a', provider: 'in-process', label: 'child-a', mode: 'one-shot', status: 'running' })
     panel.add({ id: 'b', provider: 'in-process', label: 'child-b', mode: 'continuable', status: 'idle' })
     panel.setJobs([{ id: 'pwsh-1', label: 'Run checks', status: 'running' }])
-    assert.deepEqual(render(panel, 80), ['agents ● 1 running ○ 1 idle · jobs ● 1 running ◐ 0 stopping · ↓ select'])
+    assert.deepEqual(render(panel, 100), ['  agents ● 1 running ○ 1 idle · jobs ● 1 running ◐ 0 stopping ✓ 0 settled · ↓ select'])
     assert.equal(panel.hasEntries(), true)
     panel.setExpanded(true)
     const rows = render(panel, 80)
     assert.ok(rows.some(row => row.includes('Background tasks')))
     assert.ok(rows.some(row => row.includes('Subagents')))
-    assert.ok(rows.some(row => row.includes('← Main agent')))
+    assert.ok(rows.some(row => row.includes('↑↓ select · Enter open · Esc/← Main')))
     assert.ok(rows.some(row => row.includes('├─ child-a · one-shot · running')))
     assert.ok(rows.some(row => row.includes('└─ child-b · continuable · idle')))
     assert.ok(rows.some(row => row.includes('Jobs')))
     assert.ok(rows.some(row => row.includes('└─ pwsh-1 · running · Run checks')))
+    assert.equal(panel.selected()?.kind, 'subagent')
+    assert.equal(panel.isFirstSelected(), true)
+    panel.moveSelection(1)
+    assert.equal(panel.isFirstSelected(), false)
+    assert.equal(panel.selected()?.kind, 'subagent')
+    assert.ok(render(panel, 80).some(row => row.includes('└─ child-b') && visibleWidth(row) === 80))
+    panel.moveSelection(1)
+    assert.equal(panel.selected()?.kind, 'job')
+    assert.ok(render(panel, 80).some(row => row.includes('└─ pwsh-1') && visibleWidth(row) === 80))
+    panel.setExpanded(false)
+    panel.setViewing({ kind: 'subagent', label: 'child-b' })
+    assert.ok(render(panel, 80).some(row => row.includes('SUBAGENT · child-b · Esc/← Main · ↓ Switch')))
+    panel.setExpanded(true)
+    assert.ok(render(panel, 80).some(row => row.includes('SUBAGENT · child-b')))
+    panel.setViewing(undefined)
     for (const row of rows) assert.ok(visibleWidth(row) <= 80)
     panel.setExpanded(false)
     assert.equal(panel.isExpanded(), false)
     panel.clear()
     assert.deepEqual(render(panel, 40), [])
+  })
+
+  it('renders a whole-view job projection without consuming job output', () => {
+    const view = new BackgroundJobViewComponent(palette)
+    view.set({ id: 'bash-1', kind: 'bash', label: 'pnpm run check', status: 'running', detail: 'still running' })
+
+    const rows = render(view, 50)
+
+    assert.ok(rows.some(row => row.includes('Background job')))
+    assert.ok(rows.some(row => row.includes('pnpm run check')))
+    assert.ok(rows.some(row => row.includes('bash-1 · bash · running')))
+    assert.ok(rows.some(row => row.includes('reserved for the job reader')))
+    assert.ok(rows.every(row => visibleWidth(row) <= 50))
   })
 
   it('renders working activity as a separate compact line', () => {
@@ -890,7 +953,7 @@ describe('composer chrome', () => {
 
   it('places the cursor at the end of recalled history', () => {
     const identity = (text: string): string => text
-    const editor = new Editor({
+    const editor = new PromptEditor({
       terminal: { rows: 24 },
       requestRender: () => undefined,
     } as never, {
@@ -913,7 +976,7 @@ describe('composer chrome', () => {
 
   it('submits an exact slash-command argument with one Enter press', async () => {
     const identity = (text: string): string => text
-    const editor = new Editor({
+    const editor = new PromptEditor({
       terminal: { rows: 24 },
       requestRender: () => undefined,
     } as never, {

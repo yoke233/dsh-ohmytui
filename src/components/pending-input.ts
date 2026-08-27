@@ -1,4 +1,4 @@
-import { Container, Text } from '@earendil-works/pi-tui'
+import { Container, Text, visibleWidth } from '@earendil-works/pi-tui'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { MarkdownTheme, Palette } from '../theme.ts'
 import type { Translator } from '../i18n.ts'
@@ -74,7 +74,11 @@ export class PendingInputPanel extends Container {
           this.palette.muted(' …'),
           ...rows.slice(-(PendingInputPanel.MAX_LINES - 2)),
         ]
-    return ['', ...contentRows, '']
+    const rowWidth = Math.max(1, width)
+    const backgroundRow = (row: string): string => this.palette.toolPendingBg(
+      row + ' '.repeat(Math.max(0, rowWidth - visibleWidth(row))),
+    )
+    return [backgroundRow(''), ...contentRows.map(backgroundRow), backgroundRow('')]
   }
 
   private rebuild(): void {

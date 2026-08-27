@@ -3,7 +3,7 @@
 > 目标：以插件（profile bundle）形式为 DeepSeek Harness（dsh）实现终端界面，
 > 视觉与本机 omp 17.2.15 的当前 dark-catppuccin/Nerd/minimal 配置对齐。不动 harness、不改 turtle-ui。
 > 创建：2026-08-14。上游版本基准：dsh 0.1.0-rc.6、turtle-ui b08ed69、
-> @earendil-works/pi-tui 0.80.7。
+> @earendil-works/pi-tui 0.84.3。
 
 ---
 
@@ -11,15 +11,15 @@
 
 - **定位**：与 turtle-ui 平级的"前门" bundle，骑在 `@deepseek-ai/dsh-base` 之上。
   harness 负责 agent/模型/工具/持久化/沙箱；本 bundle 只拥有终端呈现与输入。
-- **渲染**：`@earendil-works/pi-tui@0.80.7`（npm 公开分发，含 win32 原生 prebuild）。
-  移植 turtle-ui 的 pnpm patch（编辑器 `frame`/`prompt` 支持，BSD-3 需保留版权声明）。
+- **渲染**：`@earendil-works/pi-tui@0.84.3`（npm 公开分发，含 win32 原生 prebuild）。
+  编辑器外观由仓库内的 `PromptEditor` 适配官方公开 API，不修改依赖包。
 - **样式**：原生复刻本机 omp 的实际组合——dark-catppuccin 角色、truecolor 检测、
   响应式欢迎面板、无边框消息、OMP output-block 工具卡与嵌入编辑器横线的状态段。
   非 truecolor/light 终端回退 16 色 ANSI。
 - **仓库布局**：
   - `D:/Projects/dsh` → 本 bundle 仓库（现为 turtle-ui 克隆，Phase 0 迁移）
   - `D:/Projects/deepseek-harness` → 兄弟 checkout（类型解析 + 测试宿主 + 合约来源）
-  - `D:/Projects/turtle-ui` → turtle-ui 克隆移至此，仅作参考与 patch 来源
+  - `D:/Projects/turtle-ui` → turtle-ui 克隆移至此，仅作历史参考
 
 ## Phase 0 — 合同测绘（前置，不可跳过）
 
@@ -45,9 +45,7 @@
 1. **脚手架**：
    - `package.json`：name `dsh-omp-tui`，`dsh.bundle.patch = ./cordis.patch.yml`，
      peerDependencies 对齐 harness 包（turtle-ui 清单为基线），devDependencies：
-     `@earendil-works/pi-tui@0.80.7` + tsdown + vitest + @xterm/headless
-   - 移植 pi-tui patch：`patches/@earendil-works__pi-tui@0.80.7.patch` +
-     `pnpm-workspace.yaml` `patchedDependencies`；保留上游版权声明
+    `@earendil-works/pi-tui@0.84.3` + tsdown + node:test + @xterm/headless
    - `tsdown.prepare.config.ts`（无 typecheck 的消费者构建）+ `tsdown.config.ts`
 2. **cordis.patch.yml**（bundle 层，行清单照 turtle-ui 已验证的配方）：
    - 覆盖：`agent-loop`（agents: main，sessionId/resumeSessionId 取自 tuiStartup、
@@ -66,7 +64,7 @@
    - 背景角色：user/success `#181825`、pending `#313244`、error/status `#11111b`
    - truecolor 检测（COLORTERM/WT_SESSION/TERM，同 omp）；非 truecolor 回落 16 色 ANSI
    - output-block helper（`╭─── title` + `├─── Output` + 圆角底边）；`/palette` 命令
-5. **TUI 核心**：TUI init、Container chat、HintEditor（patch 版：frame/prompt）、
+5. **TUI 核心**：TUI init、Container chat、基于官方 Editor 的 PromptEditor 适配层、
    事件驱动 transcript：
    - user/message → 与 omp 一致的全宽背景块，无 `User` 标签和外框
    - assistant/chunk → 流式组件；正文无 `Assistant` 标签，思考文本缩进、斜体、弱化
@@ -102,7 +100,7 @@
 3. 本地网关接线：profile `cordis.patch.yml` 覆盖 `llm-deepseek`：
    `baseURL: http://localhost:3000/v1` + apiKey 策略（网关本地模式不校验时放占位 key）。
 4. 性能：宽度 keyed 渲染缓存（turtle-ui 教训：长会话每帧重排会卡）；长会话 1000+ 事件目检。
-5. 清理：删临时代码、README（安装/使用/上游 rebase 手册）、LICENSE（BSD-3，注明 pi-tui patch 出处）。
+5. 清理：删临时代码、README（安装/使用/上游 rebase 手册）、LICENSE。
 
 ---
 
@@ -110,10 +108,10 @@
 
 - **上游同步**：每个 Phase 结束时对 `deepseek-harness` 与 `turtle-ui`（参考）
   各做一次 rebase/fetch，rc 阶段破坏性变更在本 Phase 内吸收，不跨 Phase 累积。
-- **借用与自研边界**：借用 turtle-ui 的仅三样——pi-tui pnpm patch（保留 BSD-3 声明）、
-  headless 终端测试手法、宽度缓存模式；其余全部自研（这是方案 B 的意义）。
+- **借用与自研边界**：借用 turtle-ui 的 headless 终端测试手法与宽度缓存模式；
+  其余全部自研（这是方案 B 的意义）。
 - **一等平台**：Windows Terminal（用户环境）——WT_SESSION truecolor、
-  get-east-asian-width 宽字符、IME 硬件光标（patch 版 Editor 支持）。
+  get-east-asian-width 宽字符、官方 Editor 的 IME 硬件光标支持。
 - **验收标准**：每 Phase 有可运行的独立交付物，禁止半成品堆到下一 Phase。
 
 ## 风险与对策
@@ -121,7 +119,7 @@
 | 风险 | 对策 |
 |---|---|
 | rc 阶段 harness 接口变动 | Phase 0 contracts.md 为唯一真相源；接口变更先更新速查表再改代码；每 Phase rebase |
-| pi-tui 0.80.7 断更/缺陷 | 同 API 家族可替换：omp 自用的 `@oh-my-pi/pi-tui`（必要时连同其 patch 迁移） |
+| pi-tui 断更/缺陷 | 保持 PromptEditor 适配层仅依赖公开 API，以便替换同 API 家族实现 |
 | 工作量（turtle-ui ≈ 77KB index + 51KB dialogs） | 分 4 Phase 独立验收；若中途认为不划算，回落方案 A（fork+theme seam，约 1/5 工作量），contracts.md 直接复用 |
 | 持久化格式耦合 | 只经 `dsh-session-projection` 等官方包读写，不直接碰 storage 文件格式 |
 | 上游 turtle-ui 突然推出官方主题系统 | 本 bundle 独立存在，不受影响；反之可将其吸收 |

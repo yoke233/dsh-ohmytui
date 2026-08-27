@@ -265,6 +265,32 @@ export class UserMessageComponent extends Container {
   }
 }
 
+/** Borderless full-width surface for terminal turn failures. */
+export class ErrorMessageComponent extends Container {
+  private renderCache: RenderCache | undefined
+
+  constructor(rows: readonly string[], private readonly palette: Palette) {
+    super()
+    this.addChild(new Text(rows.join('\n'), 2, 1))
+  }
+
+  override invalidate(): void {
+    this.renderCache = undefined
+    super.invalidate()
+  }
+
+  override render(width: number): string[] {
+    const cached = cachedRender(this.renderCache, String(width), () =>
+      super.render(width).map((row) => {
+        const clipped = truncateToWidth(row, Math.max(1, width), '')
+        const fill = ' '.repeat(Math.max(0, width - visibleWidth(clipped)))
+        return this.palette.toolErrorBg(`${clipped}${fill}`)
+      }))
+    this.renderCache = cached.cache
+    return cached.lines
+  }
+}
+
 /** OMP reasoning prose: inset, muted, italic, and deliberately unlabelled. */
 export class ThinkingBlock extends Container {
   private renderCache: RenderCache | undefined
@@ -777,10 +803,6 @@ export class ToolCardComponent implements Component {
       const childWidth = Math.max(1, width - 2)
       const children = this.subCalls.flatMap(child => child.render(childWidth)
         .map(line => line === '' ? '' : `  ${line}`))
-      // REPL is only the dispatch wrapper once concrete child tools exist. Keep
-      // the more informative child cards and avoid showing the same operation
-      // twice; a failed wrapper remains visible so its error is not swallowed.
-      if (this.name === 'repl' && this.result?.status === 'completed') return children
       return [...own, ...children]
     })
     this.renderCache = cached.cache
@@ -790,12 +812,15 @@ export class ToolCardComponent implements Component {
   private renderUncached(width: number): string[] {
     const title = displayText(this.result?.view?.title ?? this.callView?.title ?? toolLabel(this.name))
     if (this.result === undefined) {
-      const pending = `${this.palette.warning('')} ${this.palette.toolTitle(title)}`
-      const rows = ['', truncateToWidth(pending, Math.max(1, width), '')]
+      const header = `${this.palette.warning('')} ${this.palette.toolTitle(title)}`
+      if (this.visibility === 'collapsed') {
+        return ['', this.summaryRow(width, header, 'expand')]
+      }
+      const rows = ['', this.summaryRow(width, header, 'collapse')]
       const detail = this.compactDetail()
       if (detail !== undefined) {
-        for (const line of detail.split('\n').flatMap(line => wrapToWidth(line, Math.max(1, width - 2)))) {
-          rows.push(truncateToWidth(`  ${this.palette.muted(line)}`, Math.max(1, width), ''))
+        for (const line of detail.split('\n').flatMap(line => wrapToWidth(line, Math.max(1, width - 4)))) {
+          rows.push(truncateToWidth(`  ${this.palette.muted(line)}`, Math.max(1, width - 2), ''))
         }
       }
       return rows
@@ -1039,8 +1064,21 @@ export interface SubagentDescriptor {
 
 export interface BackgroundJobDescriptor {
   readonly id: string
+  readonly kind?: string
   readonly label: string
-  readonly status: 'running' | 'stopping'
+  readonly status: 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
+  readonly detail?: string
+  readonly startedAt?: number
+  readonly finishedAt?: number
+}
+
+export type BackgroundTaskSelection =
+  | { readonly kind: 'subagent'; readonly descriptor: SubagentDescriptor }
+  | { readonly kind: 'job'; readonly descriptor: BackgroundJobDescriptor }
+
+export interface BackgroundTaskViewContext {
+  readonly kind: 'subagent' | 'job'
+  readonly label: string
 }
 
 /** One-line notice for older transcript entries that are currently folded. */
@@ -1068,6 +1106,8 @@ export class SubagentPanelComponent implements Component {
   private descriptors: readonly SubagentDescriptor[] = []
   private jobs: readonly BackgroundJobDescriptor[] = []
   private expanded = false
+  private selectedIndex = 0
+  private viewing: BackgroundTaskViewContext | undefined
   private renderCache: RenderCache | undefined
 
   constructor(private readonly palette: Palette) {}
@@ -1084,12 +1124,14 @@ export class SubagentPanelComponent implements Component {
   set(descriptors: readonly SubagentDescriptor[]): void {
     this.descriptors = [...descriptors]
     if (!this.hasEntries()) this.expanded = false
+    this.clampSelection()
     this.renderCache = undefined
   }
 
   setJobs(jobs: readonly BackgroundJobDescriptor[]): void {
     this.jobs = [...jobs]
     if (!this.hasEntries()) this.expanded = false
+    this.clampSelection()
     this.renderCache = undefined
   }
 
@@ -1107,15 +1149,43 @@ export class SubagentPanelComponent implements Component {
     this.renderCache = undefined
   }
 
+  setViewing(viewing: BackgroundTaskViewContext | undefined): void {
+    this.viewing = viewing
+    this.renderCache = undefined
+  }
+
+  moveSelection(delta: -1 | 1): void {
+    const count = this.descriptors.length + this.jobs.length
+    if (!this.expanded || count === 0) return
+    this.selectedIndex = (this.selectedIndex + delta + count) % count
+    this.renderCache = undefined
+  }
+
+  isFirstSelected(): boolean {
+    return this.selectedIndex === 0
+  }
+
+  selected(): BackgroundTaskSelection | undefined {
+    const descriptor = this.descriptors[this.selectedIndex]
+    if (descriptor !== undefined) return { kind: 'subagent', descriptor }
+    const job = this.jobs[this.selectedIndex - this.descriptors.length]
+    return job === undefined ? undefined : { kind: 'job', descriptor: job }
+  }
+
+  private clampSelection(): void {
+    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.descriptors.length + this.jobs.length - 1))
+  }
+
   clear(): void {
     this.descriptors = []
     this.jobs = []
     this.expanded = false
+    this.selectedIndex = 0
     this.renderCache = undefined
   }
 
   render(width: number): string[] {
-    const cacheKey = `${width}|${this.expanded}|${this.descriptors.map(descriptor => `${descriptor.id ?? ''}:${descriptor.label ?? descriptor.provider}:${descriptor.status ?? ''}`).join('\u0000')}|${this.jobs.map(job => `${job.id}:${job.status}:${job.label}`).join('\u0000')}`
+    const cacheKey = `${width}|${this.expanded}|${this.selectedIndex}|${this.viewing?.kind ?? ''}:${this.viewing?.label ?? ''}|${this.descriptors.map(descriptor => `${descriptor.id ?? ''}:${descriptor.label ?? descriptor.provider}:${descriptor.status ?? ''}`).join('\u0000')}|${this.jobs.map(job => `${job.id}:${job.status}:${job.label}`).join('\u0000')}`
     const cached = cachedRender(this.renderCache, cacheKey, () => this.renderUncached(width))
     this.renderCache = cached.cache
     return cached.lines
@@ -1123,34 +1193,80 @@ export class SubagentPanelComponent implements Component {
 
   private renderUncached(width: number): string[] {
     if (!this.hasEntries()) return []
+    const sidePadding = '  '
+    const innerWidth = Math.max(1, width - visibleWidth(sidePadding) * 2)
+    const inset = (line: string): string => `${sidePadding}${truncateToWidth(line, innerWidth, '')}`
+    const selectedRow = (line: string): string => {
+      const clipped = truncateToWidth(line, innerWidth, '')
+      const padded = clipped + ' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))
+      return `${sidePadding}${this.palette.toolPendingBg(this.palette.text(padded))}${sidePadding}`
+    }
     const agentRunning = this.descriptors.filter(descriptor => descriptor.status === 'running').length
     const agentIdle = this.descriptors.filter(descriptor => descriptor.status === 'idle').length
     const jobsRunning = this.jobs.filter(job => job.status === 'running').length
-    const jobsStopping = this.jobs.length - jobsRunning
+    const jobsStopping = this.jobs.filter(job => job.status === 'stopping').length
+    const jobsSettled = this.jobs.length - jobsRunning - jobsStopping
     if (!this.expanded) {
+      if (this.viewing !== undefined) {
+        const kind = this.viewing.kind === 'subagent' ? 'SUBAGENT' : 'JOB'
+        return [inset(`${this.palette.bold(this.palette.accent(kind))} · ${this.palette.text(this.viewing.label)} · ${this.palette.muted('Esc/← Main · ↓ Switch')}`)]
+      }
       const groups = [
         this.descriptors.length === 0 ? undefined : `agents ● ${agentRunning} running ○ ${agentIdle} idle`,
-        this.jobs.length === 0 ? undefined : `jobs ● ${jobsRunning} running ◐ ${jobsStopping} stopping`,
+        this.jobs.length === 0 ? undefined : `jobs ● ${jobsRunning} running ◐ ${jobsStopping} stopping ✓ ${jobsSettled} settled`,
       ].filter((group): group is string => group !== undefined)
-      return [truncateToWidth(this.palette.muted(`${groups.join(' · ')} · ↓ select`), Math.max(1, width), '')]
+      return [inset(this.palette.muted(`${groups.join(' · ')} · ↓ select`))]
     }
-    const lines = [this.palette.bold(this.palette.accent('Background tasks')), this.palette.dim('← Main agent')]
+    const title = this.viewing === undefined
+      ? 'Background tasks'
+      : `${this.viewing.kind === 'subagent' ? 'SUBAGENT' : 'JOB'} · ${this.viewing.label}`
+    const lines = [inset(this.palette.bold(this.palette.accent(title))), inset(this.palette.dim('↑↓ select · Enter open · Esc/← Main'))]
+    let itemIndex = 0
     if (this.descriptors.length > 0) {
-      lines.push(this.palette.accent('Subagents'))
+      lines.push(inset(this.palette.accent('Subagents')))
       this.descriptors.forEach((descriptor, index) => {
         const branch = index === this.descriptors.length - 1 ? '└─' : '├─'
         const name = descriptor.label ?? descriptor.provider
         const status = descriptor.status === undefined ? '' : ` · ${descriptor.status}`
-        lines.push(this.palette.muted(` ${branch} ${name} · ${descriptor.mode}${status}`))
+        const line = `${branch} ${name} · ${descriptor.mode}${status}`
+        lines.push(itemIndex++ === this.selectedIndex ? selectedRow(line) : inset(this.palette.muted(line)))
       })
     }
     if (this.jobs.length > 0) {
-      lines.push(this.palette.accent('Jobs'))
+      lines.push(inset(this.palette.accent('Jobs')))
       this.jobs.forEach((job, index) => {
         const branch = index === this.jobs.length - 1 ? '└─' : '├─'
-        lines.push(this.palette.muted(` ${branch} ${job.id} · ${job.status} · ${job.label}`))
+        const line = `${branch} ${job.id} · ${job.status} · ${job.label}`
+        lines.push(itemIndex++ === this.selectedIndex ? selectedRow(line) : inset(this.palette.muted(line)))
       })
     }
+    return lines.map(line => truncateToWidth(line, Math.max(1, width), ''))
+  }
+}
+
+/** Whole-view projection for a background job without consuming its output cursor. */
+export class BackgroundJobViewComponent implements Component {
+  private job: BackgroundJobDescriptor | undefined
+
+  constructor(private readonly palette: Palette) {}
+
+  set(job: BackgroundJobDescriptor | undefined): void {
+    this.job = job
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    if (this.job === undefined) return [this.palette.warning('Background job is no longer available')]
+    const job = this.job
+    const lines = [
+      this.palette.bold(this.palette.accent('Background job')),
+      '',
+      this.palette.text(job.label),
+      this.palette.muted(`${job.id}${job.kind === undefined ? '' : ` · ${job.kind}`} · ${job.status}`),
+    ]
+    if (job.detail !== undefined && job.detail !== '') lines.push('', this.palette.dim(job.detail))
+    lines.push('', this.palette.dim('Live output remains reserved for the job reader.'), this.palette.dim('Esc or ← returns to the main agent.'))
     return lines.map(line => truncateToWidth(line, Math.max(1, width), ''))
   }
 }

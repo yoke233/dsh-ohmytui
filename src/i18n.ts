@@ -400,7 +400,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpPermission: '切换权限模式（沙箱 + 审批策略）',
     cmdPermission: '切换权限模式（沙箱 + 审批策略）',
     queuedSteer: 'Steering: ',
-    queuedSteerEditHint: '↳ Alt+Up 合并编辑全部待处理消息',
+    queuedSteerEditHint: '↳ Alt+Up 编辑队列',
     queuedSteerOmitted: '… 省略较早的 {count} 条',
     noticeNoSessions: '没有持久化会话。',
     noticeSessionListFailed: '会话列表获取失败：{error}',
@@ -696,7 +696,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     helpPermission: 'switch permission mode (sandbox + approval policy)',
     cmdPermission: 'Switch permission mode (sandbox + approval policy)',
     queuedSteer: 'Steering: ',
-    queuedSteerEditHint: '↳ Alt+Up to edit all queued messages',
+    queuedSteerEditHint: '↳ Alt+Up Edit queue',
     queuedSteerOmitted: '… {count} earlier queued',
     noticeNoSessions: 'No persisted sessions.',
     noticeSessionListFailed: 'Session listing failed: {error}',
@@ -912,6 +912,11 @@ export const MESSAGES: Record<Locale, Messages> = {
 }
 
 export type MessageKey = keyof Messages
+
+/** Remove the upstream PI namespace from user-facing error codes. */
+export function displayErrorCode(code: string): string {
+  return code.replace(/^PI_/, '')
+}
 
 /** Substitute `{name}` placeholders in a template. */
 function fill(template: string, params: Record<string, string | number> | undefined): string {

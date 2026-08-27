@@ -30,13 +30,16 @@ export async function run(tui) {
       'let emitted = false',
       'export function apply(ctx) {',
       "  ctx.llm.registerAdapter(['code-dispatch-fixture'], new ControlledAdapter())",
-      "  ctx.on('agent/pre-step', ({ agent }, next) => {",
+      "  ctx.on('agent/pre-step', async ({ agent }, next) => {",
       '    if (!emitted) {',
       '      emitted = true',
       "      const rootCallId = 'fixture-root'",
       "      const subCallId = 'fixture-root:repl:1'",
+      "      agent.session.append('tool/call', { callId: rootCallId, name: 'repl', arguments: JSON.stringify({ code: 'await tools.edit({ file_path: \"src/a.ts\" })' }) })",
       "      const args = { file_path: 'src/a.ts', old_string: 'const oldValue = 1', new_string: 'const newValue = 2' }",
       "      agent.session.append('tool/code-dispatch-start', { rootCallId, parentCallId: rootCallId, subCallId, name: 'edit', arguments: args })",
+      '      await new Promise(resolve => setTimeout(resolve, 750))',
+      "      agent.session.append('tool/result', { turn: 0, step: 0, message: { source: { kind: 'tool', callId: rootCallId }, content: [{ type: 'tool-result', toolCallId: rootCallId, content: [{ type: 'text', text: 'Edited src/a.ts.' }] }] } }, { surfaceOp: 'append' })",
       "      agent.session.append('tool/code-dispatch', { rootCallId, parentCallId: rootCallId, subCallId, name: 'edit', arguments: args, isError: false, content: [{ type: 'text', text: 'Edited src/a.ts.' }] })",
       '    }',
       '    return next()',
@@ -51,11 +54,17 @@ export async function run(tui) {
   await tui.waitForOutput(/欢迎回来|Welcome back/, { timeoutMs: 30_000, label: 'welcome screen' })
   const pidBefore = tui.pid()
   tui.submit('RUN_CODE_DISPATCH_FIXTURE')
+  await tui.waitForScreen(/ Repl · await tools\.edit.*Ctrl\+O to expand[\s\S]* Edit · src\/a\.ts.*Ctrl\+O to expand/, {
+    timeoutMs: 20_000,
+    label: 'compact pending REPL tree',
+  })
   await tui.waitForOutput('CODE_DISPATCH_DONE', { timeoutMs: 20_000, label: 'controlled turn completion' })
   await tui.waitForScreen(/✓ Edit .*src\/a\.ts.*Ctrl\+O to expand/, {
     timeoutMs: 20_000,
     label: 'compact edit card',
   })
+  const compactScreen = await tui.screenText()
+  if (!/✓ Repl/.test(compactScreen)) throw new Error('Successful REPL wrapper disappeared after its dispatched child completed')
 
   tui.key('\x0f')
   await tui.waitForScreen(/✓ Edit .*src\/a\.ts[\s\S]*Edited src\/a\.ts\./, {
@@ -77,8 +86,9 @@ export async function run(tui) {
   return {
     ready: true,
     compactCardRendered: true,
+    compactPendingTreeRendered: true,
     expandedCardRendered: true,
-    hiddenStateDisabled: true,
+    replWrapperPersisted: true,
     processStayedLive: true,
     pidBefore,
     pidAfter,

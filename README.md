@@ -258,4 +258,4 @@ docs/                   安装、发布与 harness 合约文档
 
 ## 许可证
 
-[BSD-3-Clause](LICENSE)。`patches/@earendil-works__pi-tui@0.80.7.patch` vendored from `turtle1999/turtle-ui`（BSD-3），详见 [`patches/NOTICE.md`](patches/NOTICE.md)。
+[BSD-3-Clause](LICENSE)。

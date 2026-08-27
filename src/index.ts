@@ -11,7 +11,6 @@ import { basename, isAbsolute, join, resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import {
   Container,
-  Editor,
   ProcessTerminal,
   Spacer,
   TuiMainScreen,
@@ -24,6 +23,7 @@ import {
   type TUI,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
+import { PromptEditor } from './components/prompt-editor.ts'
 import type { Agent, AgentHandle, AgentStatus, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { CombinedAutocompleteProvider, type AutocompleteItem, type SlashCommand } from '@earendil-works/pi-tui'
@@ -79,8 +79,8 @@ import {
   writeReloadHandoff,
 } from './respawn.ts'
 import { parseTuiPromptTemplate } from './prompt.ts'
-import { createTranslator, type MessageKey, type Translator } from './i18n.ts'
-import { registerJobsCommand } from './jobs.ts'
+import { createTranslator, displayErrorCode, type MessageKey, type Translator } from './i18n.ts'
+import { orderJobs, registerJobsCommand } from './jobs.ts'
 import { runningTurnKeyAction } from './input.ts'
 import {
   FULL_ACCESS_REGISTRY_NAME,
@@ -118,6 +118,8 @@ import {
 } from './settings.ts'
 import {
   ContextCardComponent,
+  BackgroundJobViewComponent,
+  ErrorMessageComponent,
   HeaderComponent,
   StaticCardComponent,
   SubagentPanelComponent,
@@ -485,13 +487,11 @@ export class Tui extends Service {
     }
 
     // --- components -------------------------------------------------------
-    const editor = new Editor(ui, {
+    const editor = new PromptEditor(ui, {
       borderColor: (text: string) => palette.borderMuted(text),
       selectList: selectTheme(palette),
     } satisfies EditorTheme, {
       paddingX: 1,
-      frame: 'none',
-      prompt: { first: '', continuation: '' },
     })
     const imagePasteDraft = new ImagePasteDraft({
       maxImages: ctx.attachments.imageLimits.maxImagesPerMessage,
@@ -505,15 +505,40 @@ export class Tui extends Service {
     let statusLine = new StatusLineComponent(rightTemplate, promptValue, palette)
     const todoPanel = new TodoPanelComponent(palette)
     const subagentPanel = new SubagentPanelComponent(palette)
+    const backgroundJobView = new BackgroundJobViewComponent(palette)
+    let navigationOwner: Agent | undefined
+    let backgroundJobId: string | undefined
+    let openBackgroundSelection: (() => void) | undefined
+    let returnToMainAgent: (() => void) | undefined
     const refreshSubagentPanel = (owner: Agent | undefined = agent): void => {
+      owner = navigationOwner ?? owner
       if (owner === undefined) {
         subagentPanel.clear()
         return
       }
       subagentPanel.set(liveChildSubagents(ctx.agents.list(), owner.id))
-      subagentPanel.setJobs(ctx.jobs.list(owner)
-        .filter(job => job.status === 'running' || job.status === 'stopping')
-        .map(job => ({ id: String(job.id), label: displayInlineText(job.label), status: job.status as 'running' | 'stopping' })))
+      const jobs = orderJobs(ctx.jobs.list(owner))
+      subagentPanel.setJobs(jobs.map(job => ({
+        id: String(job.id),
+        kind: String(job.kind),
+        label: displayInlineText(job.label),
+        status: job.status,
+        ...(job.detail === undefined ? {} : { detail: displayInlineText(job.detail) }),
+        startedAt: job.startedAt,
+        ...(job.finishedAt === undefined ? {} : { finishedAt: job.finishedAt }),
+      })))
+      if (backgroundJobId !== undefined) {
+        const job = jobs.find(candidate => String(candidate.id) === backgroundJobId)
+        backgroundJobView.set(job === undefined ? undefined : {
+          id: String(job.id),
+          kind: String(job.kind),
+          label: displayInlineText(job.label),
+          status: job.status,
+          ...(job.detail === undefined ? {} : { detail: displayInlineText(job.detail) }),
+          startedAt: job.startedAt,
+          ...(job.finishedAt === undefined ? {} : { finishedAt: job.finishedAt }),
+        })
+      }
     }
     const pendingInputPanel = new PendingInputPanel(palette, mdTheme, t)
     const workingIndicator = new WorkingIndicatorComponent()
@@ -533,10 +558,14 @@ export class Tui extends Service {
 
     const rebuildChrome = (): void => {
       ui.clear()
+      if (backgroundJobId !== undefined) {
+        ui.addChild(backgroundJobView)
+        ui.addChild(subagentPanel)
+        return
+      }
       ui.addChild(chat)
       ui.addChild(workingIndicator)
       ui.addChild(todoPanel)
-      ui.addChild(subagentPanel)
       ui.addChild(pendingInputPanel)
       ui.addChild(noticeSlot)
       ui.addChild(statusLine)
@@ -545,6 +574,7 @@ export class Tui extends Service {
       ui.addChild(commandHint)
       ui.addChild(inputBorder)
       ui.addChild(footer)
+      ui.addChild(subagentPanel)
       ui.setFocus(editor)
     }
     rebuildChrome()
@@ -579,8 +609,9 @@ export class Tui extends Service {
 
     const updateInputPrompt = (): void => {
       const indicator = ctx.tuiPrompt.get('indicator') ?? ''
-      const symbol = ctx.tuiPrompt.get('symbol') ?? palette.bold(palette.accent('❯'))
-      const first = `${indicator === '' ? symbol : indicator} `
+      const symbol = ctx.tuiPrompt.get('symbol') ?? ''
+      const content = indicator === '' ? symbol : indicator
+      const first = content === '' ? '' : `${content} `
       editor.setPrompt({ first, continuation: ' '.repeat(visibleWidth(first)) })
     }
 
@@ -770,7 +801,7 @@ export class Tui extends Service {
       queuedValue.set(pendingInputPanel.count === 0
         ? undefined
         : palette.muted(` ${t('queuedSteer', { count: pendingInputPanel.count })}`))
-      symbolValue.set(palette.bold(palette.accent('❯')))
+      symbolValue.set('')
       updateInputPrompt()
     }
 
@@ -1055,10 +1086,10 @@ export class Tui extends Service {
           const reason = event.data.reason
           if (reason.kind === 'error') {
             const text = t('noticeTurnFailed', {
-              code: reason.error.code,
+              code: displayErrorCode(reason.error.code),
               error: reason.error.message,
             })
-            chat.addChild(new StaticCardComponent(
+            chat.addChild(new ErrorMessageComponent(
               displayText(text).split('\n').map(row => palette.error(row)),
               palette,
             ))
@@ -3136,6 +3167,56 @@ export class Tui extends Service {
     }
 
     const offKeys = ui.addInputListener((data) => {
+      const viewingBackgroundTask = backgroundJobId !== undefined
+        || (navigationOwner !== undefined && agent !== navigationOwner)
+      if (subagentPanel.isExpanded()) {
+        if (matchesKey(data, 'up' as Parameters<typeof matchesKey>[1])) {
+          if (subagentPanel.isFirstSelected()) {
+            subagentPanel.setExpanded(false)
+            editor.setCursorVisible(true)
+            ui.setFocus(editor)
+          } else {
+            subagentPanel.moveSelection(-1)
+          }
+          ui.requestRender()
+          return { consume: true }
+        }
+        if (matchesKey(data, 'down' as Parameters<typeof matchesKey>[1])) {
+          subagentPanel.moveSelection(1)
+          ui.requestRender()
+          return { consume: true }
+        }
+        if (matchesKey(data, 'enter' as Parameters<typeof matchesKey>[1])) {
+          openBackgroundSelection?.()
+          return { consume: true }
+        }
+        if (matchesKey(data, 'escape') || matchesKey(data, 'left' as Parameters<typeof matchesKey>[1])) {
+          if (viewingBackgroundTask) returnToMainAgent?.()
+          else {
+            subagentPanel.setExpanded(false)
+            editor.setCursorVisible(true)
+            ui.setFocus(editor)
+          }
+          ui.requestRender()
+          return { consume: true }
+        }
+        if (!matchesKey(data, 'ctrl+c')) return { consume: true }
+      }
+      if (viewingBackgroundTask
+        && (matchesKey(data, 'escape') || matchesKey(data, 'left' as Parameters<typeof matchesKey>[1]))) {
+        returnToMainAgent?.()
+        return { consume: true }
+      }
+      if (matchesKey(data, 'down' as Parameters<typeof matchesKey>[1])
+        && subagentPanel.hasEntries()
+        && (backgroundJobId !== undefined || (editor.focused && editor.getText() === ''))) {
+        subagentPanel.setExpanded(true)
+        editor.setCursorVisible(false)
+        ui.requestRender()
+        return { consume: true }
+      }
+      if (backgroundJobId !== undefined && !matchesKey(data, 'ctrl+c')) return { consume: true }
+
       const pastedFile = editor.focused ? pastedImageFilePath(data) : null
       if (pastedFile !== null) {
         try {
@@ -3201,11 +3282,6 @@ export class Tui extends Service {
         toggleReasoning()
         return {}
       }
-      if (subagentPanel.isExpanded() && matchesKey(data, 'left' as Parameters<typeof matchesKey>[1])) {
-        subagentPanel.setExpanded(false)
-        ui.requestRender()
-        return { consume: true }
-      }
       if (matchesKey(data, 'pageup' as Parameters<typeof matchesKey>[1])) {
         scrollTranscriptPage(-1)
         return { consume: true }
@@ -3222,13 +3298,6 @@ export class Tui extends Service {
         ui.requestRender()
         return { consume: true }
       }
-      if (matchesKey(data, 'down' as Parameters<typeof matchesKey>[1])
-        && editor.focused && editor.getText() === '' && subagentPanel.hasEntries()) {
-        subagentPanel.setExpanded(true)
-        ui.requestRender()
-        return { consume: true }
-      }
-
       return undefined
     })
 
@@ -3756,6 +3825,56 @@ export class Tui extends Service {
             void previousHandle.dispose().catch(() => undefined)
           })
         }
+      }
+
+      returnToMainAgent = () => {
+        const root = navigationOwner
+        backgroundJobId = undefined
+        backgroundJobView.set(undefined)
+        subagentPanel.setViewing(undefined)
+        subagentPanel.setExpanded(false)
+        editor.setCursorVisible(true)
+        if (root !== undefined && agent !== root) activateAgent(root, activeHandle)
+        navigationOwner = undefined
+        refreshSubagentPanel(root ?? agent)
+        rebuildChrome()
+        ui.requestRender()
+      }
+
+      openBackgroundSelection = () => {
+        const selection = subagentPanel.selected()
+        const root = navigationOwner ?? agent
+        if (selection === undefined || root === undefined) return
+        navigationOwner = root
+        subagentPanel.setExpanded(false)
+        editor.setCursorVisible(true)
+        if (selection.kind === 'subagent') {
+          const id = selection.descriptor.id
+          const child = id === undefined ? undefined : ctx.agents.get(SessionId(id))
+          if (child === undefined) {
+            appendNotice('Subagent is no longer available', 'warning')
+            refreshSubagentPanel(root)
+            return
+          }
+          backgroundJobId = undefined
+          backgroundJobView.set(undefined)
+          subagentPanel.setViewing({
+            kind: 'subagent',
+            label: selection.descriptor.label ?? selection.descriptor.provider,
+          })
+          if (agent !== child) activateAgent(child, activeHandle)
+          rebuildChrome()
+          ui.requestRender()
+          return
+        }
+
+        if (agent !== root) activateAgent(root, activeHandle)
+        backgroundJobId = selection.descriptor.id
+        backgroundJobView.set(selection.descriptor)
+        subagentPanel.setViewing({ kind: 'job', label: selection.descriptor.label })
+        refreshSubagentPanel(root)
+        rebuildChrome()
+        ui.requestRender()
       }
 
       const createAgent = async (): Promise<SessionId | undefined> => {

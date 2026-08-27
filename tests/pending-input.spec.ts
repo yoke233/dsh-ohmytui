@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { visibleWidth } from '@earendil-works/pi-tui'
 import { createTranslator } from '../src/i18n.ts'
 import { createPalette, markdownTheme } from '../src/theme.ts'
 import {
@@ -32,9 +33,10 @@ describe('composer steer projection', () => {
     assert.equal(panel.insert(message), true)
     assert.equal(panel.count, 1)
     assert.match(panel.render(48).join('\n'), /Steering: 补充这个约束/)
-    assert.match(panel.render(48).join('\n'), /Alt\+Up 合并编辑全部待处理消息/)
-    assert.equal(panel.render(48).at(0), '')
-    assert.equal(panel.render(48).at(-1), '')
+    assert.match(panel.render(48).join('\n'), /Alt\+Up 编辑队列/)
+    assert.equal(panel.render(48).at(0), ' '.repeat(48))
+    assert.equal(panel.render(48).at(-1), ' '.repeat(48))
+    assert.ok(panel.render(48).every(row => visibleWidth(row) === 48))
 
     assert.equal(panel.remove(message.id), true)
     assert.equal(panel.count, 0)
@@ -65,8 +67,8 @@ describe('composer steer projection', () => {
     }))
 
     assert.match(panel.render(48).join('\n'), /第一条约束[\s\S]*第二条约束/)
-    assert.equal(panel.render(48).at(0), '')
-    assert.equal(panel.render(48).at(-1), '')
+    assert.equal(panel.render(48).at(0), ' '.repeat(48))
+    assert.equal(panel.render(48).at(-1), ' '.repeat(48))
   })
 
   it('bounds rendering to the newest messages and reports omitted steers', () => {
@@ -116,7 +118,7 @@ describe('composer steer projection', () => {
 
     const rows = panel.render(24)
     assert.match(rows.join('\n'), /…/)
-    assert.equal(rows.at(0), '')
-    assert.equal(rows.at(-1), '')
+    assert.equal(rows.at(0), ' '.repeat(24))
+    assert.equal(rows.at(-1), ' '.repeat(24))
   })
 })

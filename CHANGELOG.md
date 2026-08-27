@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.5.11] - 2026-08-27
+
+- 将执行中与已完成的工具卡统一为单行 `图标 · 输入摘要 · 输出摘要` 布局，仅在用户按 `Ctrl+O` 时展开；保留 REPL dispatch 包装卡和嵌套子工具，避免工具完成时高度骤降并留下大块终端空白。
+- 增强 Background tasks 导航与待处理输入面板：支持进入后台 Agent/Job 视图、返回主 Agent，并为 Steering 队列提供完整宽度的主题背景和紧凑编辑提示。
+- 将无边框输入框迁移为仓库内基于公开 API 的 `PromptEditor`，删除 `@earendil-works/pi-tui` pnpm patch、vendored notice 及对应发布配置。
+- 用户可见的错误码移除上游 `PI_` 命名空间前缀，例如 `PI_AI_ERROR` 显示为 `AI_ERROR`。
+
 ## [0.5.7] - 2026-08-26
 
 - 简化 `omdsh` 重载提示为单行“正在重启 TUI 并恢复当前会话”；当 Profile bundle 版本高于全局启动器时静默跳过 bootstrap，不再显示与 reload 无关的版本比较或“避免降级”提示。
