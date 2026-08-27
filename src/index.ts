@@ -130,7 +130,9 @@ import {
   TRANSCRIPT_LOAD_EVENT_STEP,
   ToolCardComponent,
   UserMessageComponent,
+  applyCardVisibility,
   nextToolCardVisibility,
+  registerVisibilityCard,
   toolDetail,
   toolLabel,
   recentTranscriptStart,
@@ -139,6 +141,8 @@ import {
 import {
   PendingInputPanel,
   mergePendingInput,
+  recallablePendingInput,
+  retainedPendingInputContent,
   shouldProjectImmediateUserInput,
   shouldProjectPendingInput,
 } from './components/pending-input.ts'
@@ -182,7 +186,7 @@ import {
 } from './image-paste.ts'
 import { displayInlineText, displayText } from './components/text.ts'
 import { createOrcaStatusReporter } from './orca-status.ts'
-import { WorkingWordRotation, formatWorkingElapsed, workingActivityText } from './working-words.ts'
+import { WorkingWordRotation, compactingActivityText, formatWorkingElapsed, workingActivityText } from './working-words.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
 import { foldSessionView, hasConversationData, liveChildSubagents, recordConversationPreset, sessionSubagent } from './session-lifecycle.ts'
 import type { BridgeConfig, WechatBridge } from './wechat/index.ts'
@@ -542,15 +546,11 @@ export class Tui extends Service {
     }
     const pendingInputPanel = new PendingInputPanel(palette, mdTheme, t)
     const workingIndicator = new WorkingIndicatorComponent()
-    const noticeSlot = new Container()
-    const notice = new Text('', 2, 0)
     const askSlot = new Container()
     let commandHintText: string | undefined
     const commandHint = new CommandHintComponent(() => commandHintText, palette)
     const inputBorder = new InputBorderComponent(palette)
     let footer = new ComposerFooterComponent(leftTemplate, promptValue, palette)
-    let noticeMounted = false
-    let noticeTimer: NodeJS.Timeout | undefined
 
     // Keep transcript and composer in normal terminal flow. The application
     // does not reserve a fullscreen viewport or pin the composer to the bottom.
@@ -567,7 +567,6 @@ export class Tui extends Service {
       ui.addChild(workingIndicator)
       ui.addChild(todoPanel)
       ui.addChild(pendingInputPanel)
-      ui.addChild(noticeSlot)
       ui.addChild(statusLine)
       ui.addChild(askSlot)
       ui.addChild(editor)
@@ -622,25 +621,9 @@ export class Tui extends Service {
       ui.requestRender()
     }
 
-    const appendNotice = (text: string, kind: 'info' | 'warning' | 'error'): void => {
-      const color = kind === 'error'
-        ? palette.error
-        : kind === 'warning' ? palette.warning : palette.dim
-      notice.setText(color(displayInlineText(text)))
-      if (!noticeMounted) {
-        noticeSlot.addChild(notice)
-        noticeMounted = true
-      }
-      clearTimeout(noticeTimer)
-      noticeTimer = setTimeout(() => {
-        if (noticeMounted) {
-          noticeSlot.removeChild(notice)
-          noticeMounted = false
-        }
-        ui.requestRender()
-      }, 5000)
-      ui.requestRender()
-    }
+    // Transient notices are intentionally suppressed. Durable transcript
+    // messages, dialogs, and footer state remain visible at their own seams.
+    const appendNotice = (_text: string, _kind: 'info' | 'warning' | 'error'): void => {}
 
     const warnIfFullAccess = (target: Agent): void => {
       if (ctx.permissionPresets.current(target.session.events) === FULL_ACCESS_REGISTRY_NAME) {
@@ -697,7 +680,10 @@ export class Tui extends Service {
     const refreshActivity = (): void => {
       if (isCompacting) {
         indicatorValue.set(undefined)
-        workingIndicator.setText(palette.bold(palette.warning(`✶ ${t('noticeCompacting')}`)))
+        workingIndicator.setText(palette.bold(palette.warning(compactingActivityText(
+          SPINNER_FRAMES[spinnerIndex] ?? '',
+          t('noticeCompacting'),
+        ))))
       } else {
         indicatorValue.set(undefined)
         workingIndicator.setText(spinnerTimer === undefined
@@ -877,7 +863,7 @@ export class Tui extends Service {
         return undefined
       }
     }
-    const allToolCards = new Set<ToolCardComponent>()
+    const allToolCards = new Set<{ setVisibility(visibility: ToolCardVisibility): void }>()
     /** `hook/invoked` payloads awaiting their paired `hook/result` (by handlerId). */
     const hookInvocations = new Map<string, { point: string; matcher?: string }>()
     let toolsVisibility: ToolCardVisibility = 'collapsed'
@@ -906,7 +892,11 @@ export class Tui extends Service {
           chat.addChild(new Spacer(1))
           if (source.kind !== 'user') {
             const label = source.kind === 'plugin' ? source.plugin : source.kind
-            const card = new ContextCardComponent(label, text, maxToolOutputLines, palette)
+            const card = registerVisibilityCard(
+              allToolCards,
+              new ContextCardComponent(label, text, maxToolOutputLines, palette),
+              toolsVisibility,
+            )
             chat.addChild(card)
           } else {
             chat.addChild(new UserMessageComponent(text, palette, mdTheme))
@@ -938,11 +928,10 @@ export class Tui extends Service {
             palette,
             presentCall(event.data.name, args),
           )
-          card.setVisibility(toolsVisibility)
+          registerVisibilityCard(allToolCards, card, toolsVisibility)
           toolCards.set(event.data.callId, card)
           toolArguments.set(event.data.callId, args)
           toolNames.set(event.data.callId, event.data.name)
-          allToolCards.add(card)
           chat.addChild(card)
           break
         }
@@ -970,11 +959,10 @@ export class Tui extends Service {
             palette,
             presentCall(event.data.name, args),
           )
-          card.setVisibility(toolsVisibility)
+          registerVisibilityCard(allToolCards, card, toolsVisibility)
           toolCards.set(event.data.subCallId, card)
           toolArguments.set(event.data.subCallId, args)
           toolNames.set(event.data.subCallId, event.data.name)
-          allToolCards.add(card)
           const parent = toolCards.get(event.data.parentCallId)
           if (parent === undefined) chat.addChild(card)
           else parent.addSubCall(card)
@@ -991,11 +979,10 @@ export class Tui extends Service {
               palette,
               presentCall(event.data.name, args),
             )
-            card.setVisibility(toolsVisibility)
+            registerVisibilityCard(allToolCards, card, toolsVisibility)
             toolCards.set(event.data.subCallId, card)
             toolNames.set(event.data.subCallId, event.data.name)
             toolArguments.set(event.data.subCallId, args)
-            allToolCards.add(card)
             const parent = toolCards.get(event.data.parentCallId)
             if (parent === undefined) chat.addChild(card)
             else parent.addSubCall(card)
@@ -1043,7 +1030,11 @@ export class Tui extends Service {
             ...invoked?.matcher === undefined ? [] : [`matcher: ${invoked.matcher}`],
             ...event.data.stderrSummary === undefined ? [] : event.data.stderrSummary.split('\n'),
           ].join('\n')
-          const card = new ContextCardComponent(event.data.point, detail, maxToolOutputLines, palette, 'Hook')
+          const card = registerVisibilityCard(
+            allToolCards,
+            new ContextCardComponent(event.data.point, detail, maxToolOutputLines, palette, 'Hook'),
+            toolsVisibility,
+          )
           chat.addChild(new Spacer(1))
           chat.addChild(card)
           if (live && notify && blocked) {
@@ -1057,7 +1048,7 @@ export class Tui extends Service {
         case 'compaction/start':
           if (updateSessionView) {
             isCompacting = true
-            refreshCompacting()
+            startSpinner()
           }
           break
         case 'compaction/end':
@@ -1242,7 +1233,7 @@ export class Tui extends Service {
     // --- input ---------------------------------------------------------------
     const toggleTools = (): void => {
       toolsVisibility = nextToolCardVisibility(toolsVisibility)
-      for (const card of allToolCards) card.setVisibility(toolsVisibility)
+      applyCardVisibility(allToolCards, toolsVisibility)
       appendNotice(t('noticeToolCards', { visibility: toolsVisibility }), 'info')
     }
 
@@ -3155,11 +3146,20 @@ export class Tui extends Service {
     const EXIT_ARM_WINDOW_MS = 2000
 
     const recallPendingInput = (current: Agent): boolean => {
-      const pending = [...current.inbox.nextStep, ...current.inbox.nextTurn]
-        .filter(message => message.source.kind === 'user' && contentText(message.content).trim() !== '')
+      const pending = recallablePendingInput([...current.inbox.nextStep, ...current.inbox.nextTurn])
       if (pending.length === 0) return false
       const merged = mergePendingInput(pending, editor.getText())
-      for (const message of pending) current.inbox.remove(message.id)
+      for (const message of pending) {
+        const retained = retainedPendingInputContent(message)
+        if (retained.length === 0) {
+          current.inbox.remove(message.id)
+        } else {
+          current.inbox.replace(message.id, createUserMessage({
+            content: retained,
+            source: message.source,
+          }))
+        }
+      }
       pendingInputPanel.sync([...current.inbox.nextStep, ...current.inbox.nextTurn])
       editor.setText(merged)
       refreshPendingInput()
@@ -4066,7 +4066,6 @@ export class Tui extends Service {
       offModelSelection?.()
       offWechatOutput?.()
       stopSpinner()
-      clearTimeout(noticeTimer)
       clearTimeout(exitArmTimer)
       ui.stop()
       terminal.stop()

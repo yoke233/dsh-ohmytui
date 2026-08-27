@@ -27,6 +27,11 @@ export function workingActivityText(frame: string, word: string): string {
   return `${frame} ${word}...`
 }
 
+/** Build the compacting label from the current spinner frame. */
+export function compactingActivityText(frame: string, label: string): string {
+  return `${frame} ${label}`
+}
+
 /** Format a running turn duration without noisy sub-second precision. */
 export function formatWorkingElapsed(elapsedMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000))

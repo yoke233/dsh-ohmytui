@@ -1,4 +1,5 @@
 import { Container, Text, visibleWidth } from '@earendil-works/pi-tui'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { MarkdownTheme, Palette } from '../theme.ts'
 import type { Translator } from '../i18n.ts'
@@ -20,7 +21,19 @@ export function mergePendingInput(messages: readonly UserMessage[], draft = ''):
     .filter(message => message.source.kind === 'user' && hasContentText(message.content))
     .map(message => contentText(message.content).trim()), draft.trim()]
     .filter(Boolean)
-    .join('\n\n')
+    .join('\n')
+}
+
+/** Direct queued user messages currently eligible for Alt+Up text recall. */
+export function recallablePendingInput(messages: readonly UserMessage[]): UserMessage[] {
+  return messages.filter(message =>
+    message.source.kind === 'user'
+    && contentText(message.content).trim() !== '')
+}
+
+/** Preserve attachments and other non-text blocks when queued text is recalled. */
+export function retainedPendingInputContent(message: UserMessage): ContentBlock[] {
+  return message.content.filter(block => block.type !== 'text')
 }
 
 /** Immediate projection of user input waiting for its durable transcript event. */

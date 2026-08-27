@@ -9,6 +9,8 @@ import {
   AssistantStreamController,
   BackgroundJobViewComponent,
   ContextCardComponent,
+  applyCardVisibility,
+  registerVisibilityCard,
   ErrorMessageComponent,
   HeaderComponent,
   StaticCardComponent,
@@ -508,6 +510,22 @@ describe('transcript components respect the render width', () => {
     const reasoning = render(new ThinkingBlock('private model reasoning', palette, mdTheme), 64)
     assert.ok(reasoning.some(row => row.includes('private model reasoning')))
     assert.ok(reasoning.every(row => !/[╭╮╰╯│]/.test(row)))
+  })
+
+  it('registers injected context for the global Ctrl+O visibility toggle', () => {
+    const cards = new Set<{ setVisibility(visibility: 'collapsed' | 'expanded'): void }>()
+    const context = registerVisibilityCard(cards, new ContextCardComponent(
+      '@deepseek-ai/dsh-system-prompt',
+      Array.from({ length: 12 }, (_, index) => `context line ${index + 1}`).join('\n'),
+      3,
+      palette,
+    ), 'collapsed')
+    assert.match(render(context, 80).join('\n'), /Ctrl\+O to expand/)
+
+    applyCardVisibility(cards, 'expanded')
+
+    assert.match(render(context, 80).join('\n'), /context line 12/)
+    assert.doesNotMatch(render(context, 80).join('\n'), /Ctrl\+O to expand/)
   })
   it('subagent panel opens a tree-like list from a compact down-arrow hint', () => {
     const panel = new SubagentPanelComponent(palette)

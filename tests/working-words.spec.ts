@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { WORKING_WORDS, WorkingWordRotation, formatWorkingElapsed, workingActivityText } from '../src/working-words.ts'
+import { WORKING_WORDS, WorkingWordRotation, compactingActivityText, formatWorkingElapsed, workingActivityText } from '../src/working-words.ts'
 
 describe('working activity words', () => {
   it('keeps a random word for five messages before changing it', () => {
@@ -15,6 +15,14 @@ describe('working activity words', () => {
 
   it('adds the three-dot suffix to the animated label', () => {
     assert.equal(workingActivityText('✶', 'Brewing'), '✶ Brewing...')
+  })
+
+  it('changes the compacting label with each spinner frame', () => {
+    assert.equal(compactingActivityText('⠋', '上下文压缩中…'), '⠋ 上下文压缩中…')
+    assert.notEqual(
+      compactingActivityText('⠋', '上下文压缩中…'),
+      compactingActivityText('⠙', '上下文压缩中…'),
+    )
   })
 
   it('formats elapsed status time compactly', () => {

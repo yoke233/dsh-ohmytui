@@ -7,6 +7,8 @@ import { createPalette, markdownTheme } from '../src/theme.ts'
 import {
   PendingInputPanel,
   mergePendingInput,
+  recallablePendingInput,
+  retainedPendingInputContent,
   shouldProjectImmediateUserInput,
   shouldProjectPendingInput,
 } from '../src/components/pending-input.ts'
@@ -52,7 +54,27 @@ describe('composer steer projection', () => {
       content: [{ type: 'text', text: '第二条约束' }],
       source: { kind: 'user' },
     })
-    assert.equal(mergePendingInput([first, second], '当前草稿'), '第一条约束\n\n第二条约束\n\n当前草稿')
+    assert.equal(mergePendingInput([first, second], '当前草稿'), '第一条约束\n第二条约束\n当前草稿')
+  })
+
+  it('recalls text from every steer while preserving image attachments', () => {
+    const textOnly = createUserMessage({
+      content: [{ type: 'text', text: '可编辑文本' }],
+      source: { kind: 'user' },
+    })
+    const withImage = createUserMessage({
+      content: [
+        { type: 'text', text: '图片说明' },
+        { type: 'image', attachment: {} as never },
+      ],
+      source: { kind: 'user' },
+    })
+
+    const recalled = recallablePendingInput([textOnly, withImage])
+    assert.deepEqual(recalled.map(message => message.id), [textOnly.id, withImage.id])
+    assert.equal(mergePendingInput(recalled), '可编辑文本\n图片说明')
+    assert.deepEqual(retainedPendingInputContent(textOnly), [])
+    assert.deepEqual(retainedPendingInputContent(withImage), [{ type: 'image', attachment: {} }])
   })
 
   it('renders every queued steer in insertion order', () => {

@@ -970,6 +970,29 @@ export class ToolCardComponent implements Component {
 /** Ctrl+O toggles between a compact summary and the complete tool card. */
 export type ToolCardVisibility = 'collapsed' | 'expanded'
 
+export interface VisibilityCard {
+  setVisibility(visibility: ToolCardVisibility): void
+}
+
+/** Register any transcript card controlled by the global Ctrl+O toggle. */
+export function registerVisibilityCard<T extends VisibilityCard>(
+  cards: Set<VisibilityCard>,
+  card: T,
+  visibility: ToolCardVisibility,
+): T {
+  card.setVisibility(visibility)
+  cards.add(card)
+  return card
+}
+
+/** Apply one global visibility state to every registered transcript card. */
+export function applyCardVisibility(
+  cards: Iterable<VisibilityCard>,
+  visibility: ToolCardVisibility,
+): void {
+  for (const card of cards) card.setVisibility(visibility)
+}
+
 export function nextToolCardVisibility(visibility: ToolCardVisibility): ToolCardVisibility {
   return visibility === 'collapsed' ? 'expanded' : 'collapsed'
 }
