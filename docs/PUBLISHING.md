@@ -141,3 +141,5 @@ workflow 通过 `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` 使用该凭据。`p
 
 npm 发布不会替代 GitHub 的 `dsh-plugin` topic；topic 仍然是官方 README 指定的插件发现方式。
 
+`omdsh update` 以 npm 的 `latest` dist-tag 为版本真相源，并校验 registry 元数据中的 SHA-512 integrity；GitHub Release asset 保留为人工下载和固定版本安装渠道。
+

@@ -2,83 +2,85 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const GITHUB_REPOSITORY = 'yoke233/omdsh'
+export const NPM_LATEST_URL = 'https://registry.npmjs.org/@yoke233%2Fomdsh/latest'
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024
+const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/
 
-function githubHeaders(token, accept = 'application/vnd.github+json') {
-  return {
-    Accept: accept,
-    'User-Agent': 'omdsh-updater',
-    'X-GitHub-Api-Version': '2022-11-28',
-    ...(token === undefined || token === '' ? {} : { Authorization: `Bearer ${token}` }),
+function distribution(metadata) {
+  const dist = metadata?.dist
+  const tarball = typeof dist?.tarball === 'string' ? dist.tarball : ''
+  const integrity = typeof dist?.integrity === 'string' ? dist.integrity : ''
+  let tarballUrl
+  try {
+    tarballUrl = new URL(tarball)
+  } catch {
+    throw new Error('npm latest package has no valid tarball URL')
   }
+  if (tarballUrl.protocol !== 'https:') {
+    throw new Error('npm latest package tarball URL must use HTTPS')
+  }
+  const sha512 = integrity.split(/\s+/).find(value => /^sha512-[A-Za-z0-9+/]+={0,2}$/.test(value))
+  if (sha512 === undefined || Buffer.from(sha512.slice('sha512-'.length), 'base64').length !== 64) {
+    throw new Error('npm latest package has no valid SHA-512 integrity')
+  }
+  return { tarballUrl: tarballUrl.href, integrity: sha512 }
 }
 
-export function releaseVersion(release) {
-  const tag = typeof release?.tag_name === 'string' ? release.tag_name : ''
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) {
-    throw new Error(`GitHub latest release has an invalid tag: ${tag || '<missing>'}`)
+export function npmPackageVersion(metadata) {
+  const version = typeof metadata?.version === 'string' ? metadata.version : ''
+  if (!VERSION_PATTERN.test(version)) {
+    throw new Error(`npm latest package has an invalid version: ${version || '<missing>'}`)
   }
-  return tag.slice(1)
+  distribution(metadata)
+  return version
 }
 
-export function selectReleaseAsset(release) {
-  const expectedName = `yoke233-omdsh-${releaseVersion(release)}.tgz`
-  const matches = Array.isArray(release?.assets)
-    ? release.assets.filter(asset => asset?.name === expectedName)
-    : []
-  if (matches.length !== 1) {
-    throw new Error(`GitHub release must contain exactly one ${expectedName} asset; found ${matches.length}`)
-  }
-  const asset = matches[0]
-  if (typeof asset.browser_download_url !== 'string' || asset.browser_download_url === '') {
-    throw new Error('GitHub release tarball has no download URL')
-  }
-  if (typeof asset.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/i.test(asset.digest)) {
-    throw new Error('GitHub release tarball has no valid SHA-256 digest')
-  }
-  return asset
-}
-
-export async function fetchLatestRelease(options = {}) {
+export async function fetchLatestNpmPackage(options = {}) {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
   if (typeof fetchImpl !== 'function') throw new Error('This Node.js runtime does not provide fetch()')
-  const repository = options.repository ?? GITHUB_REPOSITORY
-  const response = await fetchImpl(`https://api.github.com/repos/${repository}/releases/latest`, {
-    headers: githubHeaders(options.token),
+  const response = await fetchImpl(options.registryUrl ?? NPM_LATEST_URL, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'omdsh-updater',
+    },
     redirect: 'follow',
   })
-  if (!response.ok) throw new Error(`GitHub latest release request failed: HTTP ${response.status}`)
-  const release = await response.json()
-  releaseVersion(release)
-  selectReleaseAsset(release)
-  return release
+  if (!response.ok) throw new Error(`npm latest package request failed: HTTP ${response.status}`)
+  const metadata = await response.json()
+  npmPackageVersion(metadata)
+  return metadata
 }
 
-export async function downloadReleaseAsset(release, destinationDir, options = {}) {
+export async function downloadNpmTarball(metadata, destinationDir, options = {}) {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
-  const asset = selectReleaseAsset(release)
-  const response = await fetchImpl(asset.browser_download_url, {
-    headers: githubHeaders(options.token, 'application/octet-stream'),
+  if (typeof fetchImpl !== 'function') throw new Error('This Node.js runtime does not provide fetch()')
+  const version = npmPackageVersion(metadata)
+  const dist = distribution(metadata)
+  const response = await fetchImpl(dist.tarballUrl, {
+    headers: {
+      Accept: 'application/octet-stream',
+      'User-Agent': 'omdsh-updater',
+    },
     redirect: 'follow',
   })
-  if (!response.ok) throw new Error(`GitHub release download failed: HTTP ${response.status}`)
+  if (!response.ok) throw new Error(`npm tarball download failed: HTTP ${response.status}`)
   const declaredSize = Number(response.headers.get('content-length'))
   if (Number.isFinite(declaredSize) && declaredSize > MAX_TARBALL_BYTES) {
-    throw new Error(`GitHub release tarball exceeds ${MAX_TARBALL_BYTES} bytes`)
+    throw new Error(`npm tarball exceeds ${MAX_TARBALL_BYTES} bytes`)
   }
   const bytes = Buffer.from(await response.arrayBuffer())
-  if (bytes.length > MAX_TARBALL_BYTES) throw new Error(`GitHub release tarball exceeds ${MAX_TARBALL_BYTES} bytes`)
+  if (bytes.length > MAX_TARBALL_BYTES) throw new Error(`npm tarball exceeds ${MAX_TARBALL_BYTES} bytes`)
 
-  if (typeof asset.digest === 'string' && asset.digest.startsWith('sha256:')) {
-    const expected = asset.digest.slice('sha256:'.length).toLowerCase()
-    const actual = crypto.createHash('sha256').update(bytes).digest('hex')
-    if (actual !== expected) throw new Error(`GitHub release checksum mismatch: expected ${expected}, got ${actual}`)
+  const expected = Buffer.from(dist.integrity.slice('sha512-'.length), 'base64')
+  const actual = crypto.createHash('sha512').update(bytes).digest()
+  if (!crypto.timingSafeEqual(actual, expected)) {
+    throw new Error(`npm tarball integrity mismatch for @yoke233/omdsh@${version}`)
   }
 
   fs.mkdirSync(destinationDir, { recursive: true })
-  const destination = path.join(destinationDir, asset.name)
-  const temporary = path.join(destinationDir, `.${asset.name}.${process.pid}.tmp`)
+  const assetName = `yoke233-omdsh-${version}.tgz`
+  const destination = path.join(destinationDir, assetName)
+  const temporary = path.join(destinationDir, `.${assetName}.${process.pid}.tmp`)
   try {
     fs.writeFileSync(temporary, bytes, { flag: 'wx' })
     fs.rmSync(destination, { force: true })
@@ -86,5 +88,5 @@ export async function downloadReleaseAsset(release, destinationDir, options = {}
   } finally {
     fs.rmSync(temporary, { force: true })
   }
-  return { path: destination, version: releaseVersion(release), asset }
+  return { path: destination, version, integrity: dist.integrity }
 }

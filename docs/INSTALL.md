@@ -136,7 +136,7 @@ $env:DEEPSEEK_BASE_URL = 'http://localhost:3000/v1'
 
 ## 升级
 
-启动器可直接从 GitHub 最新 Release 更新 `tui` profile：
+启动器默认查询 npm 的 `latest` dist-tag，下载 tarball 并校验 registry 提供的 SHA-512 integrity，然后更新 `tui` profile：
 
 ```sh
 omdsh update

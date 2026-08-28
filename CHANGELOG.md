@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.6.2] - 2026-08-28
+
+- 修复 `omdsh update` 因 GitHub API 未认证限流返回 HTTP 403：更新源改为 npm `latest` dist-tag，并在安装前校验 registry 提供的 SHA-512 integrity。
+
 ## [0.6.1] - 2026-08-28
 
 - 新增行首 `!` shell 输入：复用 dsh 当前平台的 sandbox shell executor，命令运行中与结果显示为聊天工具卡；完成后将命令、stdout、stderr 和退出状态作为持久用户消息开启独立 agent 回合。

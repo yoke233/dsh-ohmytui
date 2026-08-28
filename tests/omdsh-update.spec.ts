@@ -5,77 +5,72 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
 import {
-  downloadReleaseAsset,
-  fetchLatestRelease,
-  releaseVersion,
-  selectReleaseAsset,
+  downloadNpmTarball,
+  fetchLatestNpmPackage,
+  npmPackageVersion,
 } from '../scripts/omdsh-update.js'
 
 const bytes = Buffer.from('packed omdsh fixture')
-const digest = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`
-const release = {
-  tag_name: 'v0.6.0',
-  assets: [{
-    name: 'yoke233-omdsh-0.6.0.tgz',
-    browser_download_url: 'https://example.test/yoke233-omdsh-0.6.0.tgz',
-    digest,
-  }],
+const integrity = `sha512-${crypto.createHash('sha512').update(bytes).digest('base64')}`
+const packageMetadata = {
+  version: '0.6.1',
+  dist: {
+    tarball: 'https://registry.npmjs.org/@yoke233/omdsh/-/omdsh-0.6.1.tgz',
+    integrity,
+  },
 }
 
-describe('omdsh GitHub updater', () => {
-  it('selects the single scoped-package release asset and version', () => {
-    assert.equal(releaseVersion(release), '0.6.0')
-    assert.equal(selectReleaseAsset(release).name, 'yoke233-omdsh-0.6.0.tgz')
-    assert.throws(() => selectReleaseAsset({ ...release, assets: [] }), /exactly one/)
+describe('omdsh npm updater', () => {
+  it('validates the latest package version and distribution metadata', () => {
+    assert.equal(npmPackageVersion(packageMetadata), '0.6.1')
+    assert.throws(() => npmPackageVersion({ ...packageMetadata, version: 'latest' }), /invalid version/)
     assert.throws(
-      () => selectReleaseAsset({ ...release, assets: [{ ...release.assets[0], digest: undefined }] }),
-      /SHA-256 digest/,
+      () => npmPackageVersion({ ...packageMetadata, dist: { ...packageMetadata.dist, integrity: undefined } }),
+      /SHA-512 integrity/,
     )
-    assert.throws(() => releaseVersion({ ...release, tag_name: 'latest' }), /invalid tag/)
   })
 
-  it('fetches release metadata from the configured GitHub repository', async () => {
+  it('fetches the public npm latest endpoint without GitHub credentials', async () => {
     let requested = ''
-    const result = await fetchLatestRelease({
-      repository: 'owner/repository',
+    const result = await fetchLatestNpmPackage({
       fetchImpl: async (url) => {
         requested = String(url)
-        return new Response(JSON.stringify(release), {
+        return new Response(JSON.stringify(packageMetadata), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         })
       },
     })
-    assert.equal(requested, 'https://api.github.com/repos/owner/repository/releases/latest')
-    assert.equal(result.tag_name, 'v0.6.0')
+    assert.equal(requested, 'https://registry.npmjs.org/@yoke233%2Fomdsh/latest')
+    assert.equal(result.version, '0.6.1')
   })
 
-  it('verifies and atomically stores the release tarball', async () => {
+  it('verifies npm integrity and atomically stores the tarball', async () => {
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'omdsh-update-test-'))
     try {
-      const result = await downloadReleaseAsset(release, destination, {
+      const result = await downloadNpmTarball(packageMetadata, destination, {
         fetchImpl: async () => new Response(bytes, {
           status: 200,
           headers: { 'content-length': String(bytes.length) },
         }),
       })
-      assert.equal(result.version, '0.6.0')
+      assert.equal(result.version, '0.6.1')
       assert.deepEqual(fs.readFileSync(result.path), bytes)
-      assert.deepEqual(fs.readdirSync(destination), ['yoke233-omdsh-0.6.0.tgz'])
+      assert.deepEqual(fs.readdirSync(destination), ['yoke233-omdsh-0.6.1.tgz'])
     } finally {
       fs.rmSync(destination, { recursive: true, force: true })
     }
   })
 
-  it('rejects a release asset whose digest does not match', async () => {
+  it('rejects a tarball whose npm integrity does not match', async () => {
     const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'omdsh-update-test-'))
     try {
       await assert.rejects(
-        downloadReleaseAsset({
-          ...release,
-          assets: [{ ...release.assets[0], digest: `sha256:${'0'.repeat(64)}` }],
+        downloadNpmTarball({
+          ...packageMetadata,
+          dist: { ...packageMetadata.dist, integrity: `sha512-${Buffer.alloc(64).toString('base64')}` },
         }, destination, { fetchImpl: async () => new Response(bytes, { status: 200 }) }),
-        /checksum mismatch/,
+        /integrity mismatch/,
       )
       assert.deepEqual(fs.readdirSync(destination), [])
     } finally {

@@ -15,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { downloadReleaseAsset, fetchLatestRelease, releaseVersion } from './omdsh-update.js'
+import { downloadNpmTarball, fetchLatestNpmPackage, npmPackageVersion } from './omdsh-update.js'
 
 const PACKAGE = '@yoke233/omdsh'
 const LEGACY_PACKAGES = ['dsh-omp-tui']
@@ -33,7 +33,7 @@ const launcherHelp = `omdsh — @yoke233/omdsh 启动器
 
 说明:
   omdsh 会调用系统 PATH 中的官方 dsh，并启动 --profile tui。
-  omdsh update 从 GitHub 最新 Release 下载校验后的 tarball，并安装到 tui profile。
+  omdsh update 从 npm latest 下载并校验 tarball，然后安装到 tui profile。
   首次运行时自动把 @yoke233/omdsh 安装到 tui profile；之后若 profile
   内版本低于启动器版本，也会自动更新（可通过 OMDSH_NO_BOOTSTRAP=1
   跳过）。所有参数原样透传给 dsh（例如 --resume <session>、
@@ -280,12 +280,11 @@ function ensureProfile() {
   process.stderr.write(`omdsh: profile 已更新为 v${installedProfileVersion() ?? ownVersion}。\n`)
 }
 
-async function updateProfileFromGitHub(force) {
+async function updateProfileFromNpm(force) {
   probeInstallTools()
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  process.stderr.write('omdsh: 正在查询 GitHub 最新 Release…\n')
-  const release = await fetchLatestRelease({ token })
-  const latestVersion = releaseVersion(release)
+  process.stderr.write('omdsh: 正在查询 npm latest…\n')
+  const metadata = await fetchLatestNpmPackage()
+  const latestVersion = npmPackageVersion(metadata)
   const installedVersion = installedProfileVersion()
   if (
     !force
@@ -300,10 +299,10 @@ async function updateProfileFromGitHub(force) {
   const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
   const packageCache = path.join(dshHome, 'profile-packages', PROFILE)
   process.stderr.write(`omdsh: 正在下载 @yoke233/omdsh v${latestVersion}…\n`)
-  const downloaded = await downloadReleaseAsset(release, packageCache, { token })
+  const downloaded = await downloadNpmTarball(metadata, packageCache)
   const result = installStoredTarball(downloaded.path)
   if (result.status !== 0) {
-    fail(`GitHub Release 安装失败：${String(result.stderr || 'unknown error').trim()}`)
+    fail(`npm package 安装失败：${String(result.stderr || 'unknown error').trim()}`)
   }
   const installed = installedProfileVersion()
   if (installed !== latestVersion) {
@@ -314,14 +313,14 @@ async function updateProfileFromGitHub(force) {
 
 if (args[0] === 'update') {
   const updateArgs = args.slice(1)
-  if (updateArgs.some(arg => arg !== '--force')) fail('update 仅支持可选参数 --force。')
   try {
-    await updateProfileFromGitHub(updateArgs.includes('--force'))
-    process.exit(0)
+    if (updateArgs.some(arg => arg !== '--force')) throw new Error('update 仅支持可选参数 --force。')
+    await updateProfileFromNpm(updateArgs.includes('--force'))
   } catch (error) {
-    fail(`更新失败：${error instanceof Error ? error.message : String(error)}`)
+    process.stderr.write(`omdsh: 更新失败：${error instanceof Error ? error.message : String(error)}\n`)
+    process.exitCode = 1
   }
-}
+} else {
 
 if (process.env.DSH_DEBUG === '1') {
   ensureProfile()
@@ -426,4 +425,5 @@ for (;;) {
     // 没有 handoff 的 75 不属于 reload 契约，按普通退出码透传。
   }
   process.exit(result.code ?? 0)
+}
 }
