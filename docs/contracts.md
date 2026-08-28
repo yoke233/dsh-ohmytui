@@ -509,8 +509,8 @@ abstract class SessionQueryEngine extends Service {
 ```
 
 - 过滤器：`{kind:'id'|'cwd'|'created-at'|'parent'|'availability'}` / 事件 `{kind:'seq'|'time'|'type'|'surface'|'text'}`；AND 语义、同子句 OR。
-- TUI 消费：`/resume` 列表用 `listSessions()`/`filterSessions([{kind:'availability',values:['persisted']}])` +
-  `readTitleSnapshots`；预览用 `readSurface`。错误码闭集 18 个 `SESSION_QUERY_*`。
+- TUI 消费：`/resume` 列表用 `listSessions()`，保留当前项目中已持久化且 `header.origin !== 'subagent'` 的顶层会话，再用
+  `readTitleSnapshots` 读取标题；预览用 `readSurface`。错误码闭集 18 个 `SESSION_QUERY_*`。
 
 ---
 

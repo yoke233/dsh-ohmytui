@@ -3,19 +3,20 @@ import assert from 'node:assert/strict'
 import { filterProjectSessions, sameProject } from '../src/session-filter.ts'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
 
-function record(cwd: string | null, persisted: boolean, id: string): SessionRecord {
+function record(cwd: string | null, persisted: boolean, id: string, origin?: 'subagent'): SessionRecord {
   return {
-    header: { cwd, id } as unknown as SessionRecord['header'],
+    header: { cwd, id, origin } as unknown as SessionRecord['header'],
     live: false,
     persisted,
   }
 }
 
 describe('project session filtering', () => {
-  it('keeps only persisted sessions from the active project', () => {
+  it('keeps only persisted top-level sessions from the active project', () => {
     const workspace = process.cwd()
     const records = [
       record(workspace, true, 'same'),
+      record(workspace, true, 'child', 'subagent'),
       record(workspace, false, 'live-only'),
       record('D:/other-project', true, 'other'),
       record(null, true, 'unknown'),

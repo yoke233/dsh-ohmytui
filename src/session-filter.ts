@@ -11,7 +11,10 @@ export function sameProject(left: string | null | undefined, right: string): boo
     : leftPath === rightPath
 }
 
-/** Keep only persisted sessions whose cwd belongs to the active project. */
+/** Keep only persisted top-level sessions whose cwd belongs to the active project. */
 export function filterProjectSessions(records: readonly SessionRecord[], workspace: string): SessionRecord[] {
-  return records.filter(record => record.persisted && sameProject(record.header.cwd, workspace))
+  return records.filter(record =>
+    record.persisted
+    && record.header.origin !== 'subagent'
+    && sameProject(record.header.cwd, workspace))
 }
