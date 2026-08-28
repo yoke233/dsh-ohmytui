@@ -40,7 +40,7 @@ jobs:
       - name: Publish npm package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "release/yoke233-omdsh-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
+        run: npm publish "./release/yoke233-omdsh-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
