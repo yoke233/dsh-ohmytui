@@ -84,7 +84,7 @@ npm install --global @deepseek-ai/dsh@0.1.1-rc.2
 dsh --profile tui
 ```
 
-**推荐**使用本项目自带的 `omdsh` 启动器（它只从系统 PATH 中查找官方 `dsh`，不通过 npx 下载或缓存 dsh）。`omdsh` 首次运行时会自动把 `@yoke233/omdsh` 安装到 tui profile；之后检测到 profile 内版本低于启动器版本时也会自动更新（可用 `OMDSH_NO_BOOTSTRAP=1` 跳过）。它还是 `/reload` 的监督进程：只有经 `omdsh` 启动，TUI 里的 `/reload` 才能原地重启插件运行时并续接当前会话。
+**推荐**使用本项目自带的 `omdsh` 启动器（它只从系统 PATH 中查找官方 `dsh`，不通过 npx 下载或缓存 dsh）。`omdsh` 首次运行时会自动把 `@yoke233/omdsh` 安装到 tui profile；已有安装只做本地完整性修复，普通启动不会比较或升级版本。版本升级必须显式运行 `omdsh update`（可用 `OMDSH_NO_BOOTSTRAP=1` 跳过引导与修复）。它还是 `/reload` 的监督进程：只有经 `omdsh` 启动，TUI 里的 `/reload` 才能原地重启插件运行时并续接当前会话。
 
 全局安装 tarball（见上文）后 `omdsh` 直接在 PATH 中：
 

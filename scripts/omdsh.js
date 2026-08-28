@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // omdsh: @yoke233/omdsh 启动器（Node 实现，跨平台 bin 入口）。
 // 只负责调用系统 PATH 中官方 dsh 的独立进程，并启动 tui profile。
-// 本项目不下载、不缓存 dsh；首次运行时自动把本包安装进 tui profile，
-// 之后检测到 profile 内版本低于启动器版本时自动更新。
+// 本项目不下载、不缓存 dsh；首次运行时自动把本包安装进 tui profile。
+// 已安装 Profile 的版本升级只由显式 `omdsh update` 执行。
 //
 // 环境变量：
 //   DSH_REAL             显式指定 dsh 可执行文件
 //   DSH_DEBUG=1          只打印将要执行的命令
-//   OMDSH_NO_BOOTSTRAP=1 跳过首次运行/自动更新的 profile 引导
+//   OMDSH_NO_BOOTSTRAP=1 跳过 profile 引导与安装修复
 
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -34,16 +34,16 @@ const launcherHelp = `omdsh — @yoke233/omdsh 启动器
 说明:
   omdsh 会调用系统 PATH 中的官方 dsh，并启动 --profile tui。
   omdsh update 从 npm latest 下载并校验 tarball，然后安装到 tui profile。
-  首次运行时自动把 @yoke233/omdsh 安装到 tui profile；之后若 profile
-  内版本低于启动器版本，也会自动更新（可通过 OMDSH_NO_BOOTSTRAP=1
-  跳过）。所有参数原样透传给 dsh（例如 --resume <session>、
-  --session <session>）。
+  首次运行时自动把 @yoke233/omdsh 安装到 tui profile；已有安装只做
+  本地完整性修复，版本升级必须显式运行 omdsh update（可通过
+  OMDSH_NO_BOOTSTRAP=1 跳过引导与修复）。所有参数原样透传给 dsh
+  （例如 --resume <session>、--session <session>）。
   官方 dsh 命令（web/plugin/--profile/--patch 等）请直接使用 dsh。
 
 环境变量:
   DSH_REAL             显式指定 dsh 可执行文件
   DSH_DEBUG=1          只打印将要执行的命令
-  OMDSH_NO_BOOTSTRAP=1 跳过 profile 引导安装/自动更新
+  OMDSH_NO_BOOTSTRAP=1 跳过 profile 引导与安装修复
 `
 
 const args = process.argv.slice(2)
@@ -264,20 +264,9 @@ function ensureProfile() {
     return
   }
 
-  // A launcher older than the already-installed Profile bundle has nothing to
-  // repair or upgrade. Keep this normal bootstrap decision silent.
-  if (compareVersions(installedVersion, ownVersion) > 0) return
-
-  process.stderr.write(
-    `omdsh: 检测到 profile 内 @yoke233/omdsh 为 v${installedVersion}，正在自动更新到 v${ownVersion}…\n`,
-  )
-  const result = addToProfile()
-  if (result.status !== 0) {
-    fail(
-      `自动更新失败。可稍后手工执行：pnpm pack 后运行 dsh plugin --profile ${PROFILE} add <tgz>`,
-    )
-  }
-  process.stderr.write(`omdsh: profile 已更新为 v${installedProfileVersion() ?? ownVersion}。\n`)
+  // Normal startup never changes an installed Profile version. Version
+  // discovery, download, and installation belong exclusively to `omdsh update`.
+  return
 }
 
 async function updateProfileFromNpm(force) {

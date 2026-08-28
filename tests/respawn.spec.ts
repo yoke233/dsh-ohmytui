@@ -119,6 +119,55 @@ describe('launcher Profile migration', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('does not update an older healthy Profile during normal startup', () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-profile-version-skew-'))
+    const profileRoot = join(root, 'profiles', 'tui')
+    const launcherPackage = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { dependencies?: Record<string, string> }
+
+    try {
+      mkdirSync(profileRoot, { recursive: true })
+      writeFileSync(join(profileRoot, 'package.json'), `${JSON.stringify({
+        name: 'dsh-profile-tui',
+        private: true,
+        dependencies: { '@yoke233/omdsh': 'file:older.tgz' },
+        dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@yoke233/omdsh'] } },
+      }, undefined, 2)}\n`, { flag: 'wx', flush: true })
+      const installedPackages = ['@yoke233/omdsh', ...Object.keys(launcherPackage.dependencies ?? {})]
+      for (const name of installedPackages) {
+        const packageJson = join(profileRoot, 'node_modules', ...name.split('/'), 'package.json')
+        mkdirSync(dirname(packageJson), { recursive: true })
+        writeFileSync(packageJson, JSON.stringify({ name, version: '0.0.1' }))
+      }
+
+      const fakeDshModule = join(root, 'unexpected-dsh.mjs')
+      writeFileSync(fakeDshModule, 'process.exit(2)\n')
+      const fakeDsh = process.platform === 'win32' ? join(root, 'dsh.cmd') : join(root, 'dsh')
+      if (process.platform === 'win32') {
+        writeFileSync(fakeDsh, `@echo off\r\n"${process.execPath}" "${fakeDshModule}" %*\r\n`)
+      } else {
+        writeFileSync(fakeDsh, `#!/bin/sh\nexec "${process.execPath}" "${fakeDshModule}" "$@"\n`)
+        chmodSync(fakeDsh, 0o755)
+      }
+
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/omdsh.js', import.meta.url))], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DSH_DEBUG: '1',
+          DSH_HOME: root,
+          DSH_REAL: fakeDsh,
+        },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      assert.doesNotMatch(result.stderr, /自动更新|Tarball Contents|正在重新安装/)
+      assert.match(result.stdout, /omdsh →/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('nextGenerationArgs', () => {

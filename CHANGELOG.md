@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.6.3] - 2026-08-28
+
+- 普通 `omdsh` 启动不再因全局 launcher 比 Profile 新而自动打包、安装；版本查询与升级仅由显式 `omdsh update` 执行。
+
 ## [0.6.2] - 2026-08-28
 
 - 修复 `omdsh update` 因 GitHub API 未认证限流返回 HTTP 403：更新源改为 npm `latest` dist-tag，并在安装前校验 registry 提供的 SHA-512 integrity。
