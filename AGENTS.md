@@ -29,6 +29,8 @@ pnpm run prepare
 
 `pnpm run check` 依次执行类型检查和全部源码测试。`pnpm run prepare` 从 `src/` 生成消费者使用的 `lib/` bundle，但不执行类型检查，因此不能替代 `check`。
 
+本仓库中，用户说“安装”时，默认指打包后安装到本机 TUI Profile：先运行 `pnpm run prepare` 构建 `lib/`，再运行 `pnpm pack` 生成 `.tgz` 归档；安装前必须把归档复制或重命名为从未使用过的持久文件名（例如 `yoke233-omdsh-<version>-local-<timestamp>.tgz`），同版本重复安装也必须换名以绕过包管理器缓存；最后运行 `dsh plugin --profile tui add <改名后的 .tgz>`。完成标准是 `tui` Profile 使用本次生成且改名后的归档而非旧缓存或 `link:.`，并保留该归档供 Profile 后续解析。只有用户明确说“安装依赖”时才解释为 `pnpm install`。
+
 运行单个测试文件：
 
 ```powershell

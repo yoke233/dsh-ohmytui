@@ -1,4 +1,4 @@
-# dsh-omp-tui：自研 TUI bundle（方案 B）实施计划
+# @yoke233/omdsh：自研 TUI bundle（方案 B）实施计划
 
 > 目标：以插件（profile bundle）形式为 DeepSeek Harness（dsh）实现终端界面，
 > 视觉与本机 omp 17.2.15 的当前 dark-catppuccin/Nerd/minimal 配置对齐。不动 harness、不改 turtle-ui。
@@ -43,7 +43,7 @@
 ## Phase 1 — 骨架（最小可对话前门）
 
 1. **脚手架**：
-   - `package.json`：name `dsh-omp-tui`，`dsh.bundle.patch = ./cordis.patch.yml`，
+   - `package.json`：name `@yoke233/omdsh`，`dsh.bundle.patch = ./cordis.patch.yml`，
      peerDependencies 对齐 harness 包（turtle-ui 清单为基线），devDependencies：
     `@earendil-works/pi-tui@0.84.3` + tsdown + node:test + @xterm/headless
    - `tsdown.prepare.config.ts`（无 typecheck 的消费者构建）+ `tsdown.config.ts`
@@ -126,7 +126,7 @@
 
 ## 命名与安装（默认，可改）
 
-- 包名：`dsh-omp-tui`；profile 名：`tui`
+- 包名：`@yoke233/omdsh`；profile 名：`tui`
 - 安装：`dsh plugin --profile tui add file:.`（checkout 内先 `pnpm run prepare`；
   每次改源码后重新 add 刷新副本）
 - 运行：`dsh --profile tui`、`dsh --profile tui --resume <id>`、`dsh --profile tui --session <id>`

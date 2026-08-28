@@ -45,7 +45,7 @@ describe('profile reload runtime', () => {
     const base = { parent: { tree: { ctx: { baseUrl: 'file:///profile/' } } } }
     const entries = [
       { ...base, options: { id: 'include', name: 'cordis:include' } },
-      { ...base, options: { id: 'tui', name: 'dsh-omp-tui' } },
+      { ...base, options: { id: 'tui', name: '@yoke233/omdsh' } },
     ]
     assert.equal(findLoadedEntry(entries, 'tui'), entries[1])
   })
@@ -212,7 +212,7 @@ describe('profile reload runtime', () => {
   it('rejects changes to rows that own the active TUI lifecycle', () => {
     const previous = [
       { insert: [
-        { id: 'tui', name: 'dsh-omp-tui' },
+        { id: 'tui', name: '@yoke233/omdsh' },
         { id: 'commands', name: '@deepseek-ai/dsh-commands' },
       ] },
     ] as never[]

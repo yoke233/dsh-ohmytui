@@ -1,4 +1,4 @@
-# Contributing to dsh-omp-tui
+# Contributing to omdsh
 
 感谢贡献。这个仓库是 DeepSeek Harness 的独立 profile bundle，修改应保持 dsh harness 合约边界，不直接修改上游 harness 或 turtle-ui。
 

@@ -191,6 +191,27 @@ export class TuiHarness {
     )
   }
 
+  /** Probe until the slash-command menu is ready after asynchronous Profile refreshes. */
+  async waitForSlashMenu(options = {}) {
+    const expected = options.expected ?? /→\s+\S+/
+    const retryMs = options.retryMs ?? 500
+    let nextProbeAt = 0
+    return await this.waitFor(
+      async () => {
+        if (matches(await this.screenText(), expected)) return true
+        const now = Date.now()
+        if (now >= nextProbeAt) {
+          this.key('\x15')
+          this.key('/')
+          nextProbeAt = now + retryMs
+        }
+        return false
+      },
+      options.timeoutMs ?? 15_000,
+      options.label ?? 'slash-command menu readiness',
+    )
+  }
+
   /** Wait for a predicate while preserving the terminal tail on timeout. */
   async waitFor(predicate, timeoutMs, label) {
     const deadline = Date.now() + timeoutMs

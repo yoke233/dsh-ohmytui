@@ -98,6 +98,30 @@ describe('PromptEditor', () => {
     assert.equal(submitted, '/mode minimal')
   })
 
+  it('opens argument suggestions after Tab completes a slash command', async () => {
+    const editor = createEditor()
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider([{
+      name: 'permission',
+      description: '切换权限',
+      argumentHint: '<read-only|workspace-write|full-access>',
+      getArgumentCompletions: () => [
+        { value: 'read-only', label: 'read-only — 只读' },
+        { value: 'workspace-write', label: 'workspace-write — 工作区写入' },
+        { value: 'full-access', label: 'full-access — 完全访问' },
+      ],
+    }], 'D:/work'))
+    for (const character of '/per') editor.handleInput(character)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(editor.isShowingAutocomplete(), true)
+
+    editor.handleInput('\t')
+    assert.equal(editor.getText(), '/permission ')
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    assert.equal(editor.isShowingAutocomplete(), true)
+    assert.ok(editor.render(80).some(line => line.includes('read-only — 只读')))
+  })
+
   it('closes autocomplete when Ctrl+U clears the command line', async () => {
     const editor = createEditor()
     editor.setAutocompleteProvider(new CombinedAutocompleteProvider([{

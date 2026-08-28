@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -22,6 +23,7 @@ jobs:
         with:
           node-version: 22.19.0
           cache: pnpm
+          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: npm install -g @deepseek-ai/dsh@0.1.1-rc.2
       - run: pnpm run check
@@ -34,7 +36,11 @@ jobs:
         run: |
           mkdir -p release
           pnpm pack --pack-destination release
+      - name: Publish npm package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "release/yoke233-omdsh-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: release/dsh-omp-tui-*.tgz
+          files: release/yoke233-omdsh-*.tgz

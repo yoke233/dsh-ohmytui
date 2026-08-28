@@ -8,9 +8,10 @@ export async function run(tui) {
     'profiles',
     'tui',
     'node_modules',
-    'dsh-omp-tui',
+    '@yoke233',
+    'omdsh',
   )
-  const linkedPackage = join(tui.config.dshHome, 'linked-dsh-omp-tui')
+  const linkedPackage = join(tui.config.dshHome, 'linked-yoke233-omdsh')
   cpSync(installedPackage, linkedPackage, { recursive: true })
   rmSync(installedPackage, { recursive: true, force: true })
   symlinkSync(linkedPackage, installedPackage, 'junction')

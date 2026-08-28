@@ -1,5 +1,5 @@
 @echo off
-rem omdsh: dsh-omp-tui 启动器（Windows 薄包装）。
+rem omdsh: @yoke233/omdsh 启动器（Windows 薄包装）。
 rem 实际逻辑在 scripts\omdsh.js 中，以便与 bin 入口保持一致。
 setlocal
 

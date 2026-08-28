@@ -13,6 +13,10 @@ export interface EditorPrompt {
   continuation: string
 }
 
+interface AutocompleteRefreshEditor {
+  tryTriggerAutocomplete(explicitTab?: boolean): void
+}
+
 const ansiSequence = /\x1B\[[0-?]*[ -/]*[@-~]/g
 
 function plainText(line: string): string {
@@ -52,6 +56,7 @@ export class PromptEditor extends Editor {
     const textBefore = this.getText()
     const autocompleteBefore = this.isShowingAutocomplete()
     const historyNavigation = matchesKey(data, 'up') || matchesKey(data, 'down')
+    const tabCompletion = matchesKey(data, 'tab')
     const submit = matchesKey(data, 'enter')
 
     super.handleInput(data)
@@ -66,6 +71,20 @@ export class PromptEditor extends Editor {
     // Upstream recalls older history at column zero. Keep the long-standing
     // composer contract: recalled drafts resume with the cursor at the end.
     if (historyNavigation && this.getText() !== textBefore) super.handleInput('\x1b[F')
+
+    // Accepting a slash-command candidate with Tab inserts a trailing space and
+    // closes the command list upstream. Trigger completion once more so the
+    // command's argument choices replace it immediately.
+    if (
+      tabCompletion
+      && autocompleteBefore
+      && textBefore.startsWith('/')
+      && this.getText() !== textBefore
+      && this.getText().endsWith(' ')
+      && !this.isShowingAutocomplete()
+    ) {
+      (this as unknown as AutocompleteRefreshEditor).tryTriggerAutocomplete(true)
+    }
 
     // Upstream applies an exact slash-command argument on the first Enter but
     // does not submit it. A second Enter is safe only when completion left the

@@ -1,9 +1,10 @@
-# dsh-omp-tui 合约速查表（contracts.md）
+# @yoke233/omdsh 合约速查表（contracts.md）
 
 > dsh 0.1.1-rc.2 唯一真相源。类型文本逐字引自 npm 安装包
 > `@deepseek-ai/*/lib/types/*.d.ts`。本文件是 TUI bundle 消费 harness 服务的地图；
 > 上游接口变更时先更新本表再改代码。
 > 包根：`node_modules/@deepseek-ai`（本仓库 pnpm 安装）与全局 dsh 安装目录中的 `node_modules/@deepseek-ai`
+> Bundle 包身份为 `@yoke233/omdsh`，Profile 名保持 `tui`；重命名不改变 `tui`、`tui-startup`、`tui-prompt`、`session-title-llm-tui`、`wechat-ilink`、`tui-reload` 等行 id，以保留设置与会话兼容性。旧 `dsh-omp-tui` 与新 bundle 不得同时出现在一个 Profile。
 
 ---
 
@@ -33,6 +34,8 @@ export interface SessionEventMap {
 ```
 
 插件扩展方式：`declare module '@deepseek-ai/dsh-session/types' { interface SessionEventMap { ... } }`。
+
+`@deepseek-ai/dsh-llm-retry` 追加持久但默认不进入表层的 `llm/retry` 与 `llm/retry-started`。`llm/retry` 数据包含 `turn`、`step`、`provider`、从 1 开始的 `retry`、实际 `delayMs`、失败详情；normal 模式另含 `maxRetries`。提供方省略策略时默认 normal 模式：首次请求失败后最多重试 5 次（总计最多 6 次尝试），仅 `EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT`、`TRANSPORT` 可重试。局部退避为 500ms 起始、2 倍指数、10s 封顶，并施加 ±10% jitter；若提供方返回不超过 10s 的有效 Retry-After，则优先采用。
 
 rc8 已知新事件（log-only，TUI 默认忽略）：`team/member`、`team/message/delivered`、`team/message/queued`、`team/task`。
 
@@ -619,6 +622,26 @@ abstract class JobRegistry extends Service {
 - 活跃状态为 `running | stopping`；终态为 `completed | killed | failed`。
 - dsh base 已挂载 `dsh-jobs-local` 和模型侧 `dsh-tool-jobs`；TUI 只消费 registry，不复制任务生命周期。
 
+### 7.10 dsh-shell（`ctx.shell`）
+
+```ts
+interface ShellExecRequest {
+  command: string; workdir?: string; timeoutMs?: number; stdoutMaxBytes?: number;
+  signal?: AbortSignal; stdin?: string; env?: Record<string, string>;
+  sandboxPolicy?: SandboxExecutionPolicy;
+}
+interface ShellRunResult {
+  exitCode: number | null; signal: NodeJS.Signals | null; timedOut: boolean; aborted: boolean; timeoutMs: number;
+  stdout: CollectedOutput; stderr: CollectedOutput; sandbox?: ShellSandboxInfo;
+}
+abstract class ShellExecutor extends Service {
+  abstract resolve(request: ShellExecRequest): ShellExecSpec;
+  abstract run(spec: ShellExecSpec): Promise<ShellRunResult>;
+}
+```
+
+Profile 在 Windows 组合 pwsh executor，在 POSIX 组合 bash executor；TUI 的用户主动 `!` 命令必须复用 `ctx.shell.resolve/run`，从而继承 cwd、环境清理、输出上限、超时和 sandbox，不能直接 `child_process.spawn` 复制或绕过 harness。命令完成后编码成 `source.kind = 'user'` 的 `UserMessage` 并通过 `agent.followup()` 开启独立回合；持久 `user/message` 同时是恢复后重建 shell 结果卡的真相源。
+
 ---
 
 ## 8. 配置行 schema（cordis.patch.yml 编写依据）
@@ -667,3 +690,4 @@ interface Config {
 11. **投影消费**：`ctx.sessionProjections.snapshot(session)` 或 `sessionProjectionCache.cachedSnapshot(header)`（列表零 I/O）。
 12. **Profile 与 TUI 代码重载（暂时关闭）**：当前 bundle 将 `tui-reload` Profile 行标记为 disabled，TUI 不注入 `tuiReload`，也不提供 `/reload` 命令、帮助项或补全项。`src/reload.ts`、包导出与专项测试仅作为未启用的调查 WIP 保留，不能视为运行时能力；恢复前必须先解决 `docs/RELOAD_ISSUE.md` 记录的 generation 与私有 HMR 边界，并重新完成 Loader 与 ConPTY 验收。
 13. **后台任务导航**：主界面的子 Agent 列表来自 `ctx.agents.list()`，按 `session.header.parentSession === foreground.id` 且 `origin === 'subagent'` 过滤；展示身份只读取每个子会话 `seedLength` 之后的自有 `subagent/descriptor`，避免把 fork seed 中祖先 descriptor 误认成当前子 Agent。面板同时通过 `ctx.jobs.list(foreground)` 展示该 Agent 的 running/stopping Jobs，并由 `ctx.jobs.onJobsChanged` 刷新；Jobs 不再重复占用 footer。空编辑器中按下方向键展开 Background tasks 列表，按左方向键返回主 Agent 视图，不改变 foreground Agent，也不向子 Agent 或 Job 投递输入。
+14. **本地 shell 输入**：行首 `!` 由 TUI 截获，正文交给当前平台已组合的 `ctx.shell` executor；完成前显示 pending shell 卡，完成后把 shell、命令、stdout、stderr、退出码、超时/中止/sandbox 摘要编码为可逆文本，创建 `source.kind = 'user'` 的消息并 `agent.followup()`，从而既持久渲染在 transcript，也作为下一独立回合的用户输入进入模型上下文。

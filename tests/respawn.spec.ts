@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   RELOAD_EXIT_CODE,
   RELOAD_HANDOFF_ENV,
@@ -37,6 +38,86 @@ describe('respawn contract constants', () => {
     // scripts/omdsh.js hardcodes both values; a change here must change there.
     assert.equal(RELOAD_EXIT_CODE, 75)
     assert.equal(RELOAD_HANDOFF_ENV, 'OMDSH_RELOAD_HANDOFF')
+  })
+})
+
+describe('launcher Profile migration', () => {
+  it('removes a legacy bundle even when the current package version is already installed', () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-profile-migration-'))
+    const profileRoot = join(root, 'profiles', 'tui')
+    const manifestPath = join(profileRoot, 'package.json')
+    const launcherPackage = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { version: string; dependencies?: Record<string, string> }
+    const dependencies = {
+      '@yoke233/omdsh': 'file:current.tgz',
+      'dsh-omp-tui': 'file:legacy.tgz',
+    }
+    const bundles = ['@deepseek-ai/dsh-base', '@yoke233/omdsh', 'dsh-omp-tui']
+
+    try {
+      mkdirSync(profileRoot, { recursive: true })
+      writeFileSync(manifestPath, `${JSON.stringify({
+        name: 'dsh-profile-tui',
+        private: true,
+        dependencies,
+        dsh: { profile: { bundles } },
+      }, undefined, 2)}\n`)
+
+      const installedPackages = ['@yoke233/omdsh', ...Object.keys(launcherPackage.dependencies ?? {})]
+      for (const name of installedPackages) {
+        const packageJson = join(profileRoot, 'node_modules', ...name.split('/'), 'package.json')
+        mkdirSync(dirname(packageJson), { recursive: true })
+        writeFileSync(packageJson, JSON.stringify({
+          name,
+          version: name === '@yoke233/omdsh' ? launcherPackage.version : '0.0.0',
+        }))
+      }
+
+      const fakeDshModule = join(root, 'fake-dsh.mjs')
+      writeFileSync(fakeDshModule, `
+        import fs from 'node:fs'
+        import path from 'node:path'
+        const args = process.argv.slice(2)
+        if (args.slice(0, 5).join(' ') !== 'plugin --profile tui remove dsh-omp-tui') process.exit(2)
+        const manifestPath = path.join(process.env.DSH_HOME, 'profiles', 'tui', 'package.json')
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        delete manifest.dependencies['dsh-omp-tui']
+        manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
+          name => name !== 'dsh-omp-tui',
+        )
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
+      `)
+      const fakeDsh = process.platform === 'win32'
+        ? join(root, 'dsh.cmd')
+        : join(root, 'dsh')
+      if (process.platform === 'win32') {
+        writeFileSync(fakeDsh, `@echo off\r\n"${process.execPath}" "${fakeDshModule}" %*\r\n`)
+      } else {
+        writeFileSync(fakeDsh, `#!/bin/sh\nexec "${process.execPath}" "${fakeDshModule}" "$@"\n`)
+        chmodSync(fakeDsh, 0o755)
+      }
+
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/omdsh.js', import.meta.url))], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DSH_DEBUG: '1',
+          DSH_HOME: root,
+          DSH_REAL: fakeDsh,
+        },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      const migrated = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+        dependencies: Record<string, string>
+        dsh: { profile: { bundles: string[] } }
+      }
+      assert.equal(migrated.dependencies['dsh-omp-tui'], undefined)
+      assert.equal(migrated.dsh.profile.bundles.includes('dsh-omp-tui'), false)
+      assert.match(result.stderr, /正在迁移旧 bundle dsh-omp-tui/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

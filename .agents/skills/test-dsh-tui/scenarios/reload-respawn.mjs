@@ -82,7 +82,7 @@ export async function run(tui) {
   // graph) can render the marker; the running generation already imported
   // the old module and can never show it.
   const entry = join(
-    tui.config.dshHome, 'profiles', 'tui', 'node_modules', 'dsh-omp-tui', 'lib', 'index.js',
+    tui.config.dshHome, 'profiles', 'tui', 'node_modules', '@yoke233', 'omdsh', 'lib', 'index.js',
   )
   const source = readFileSync(entry, 'utf8')
   const changed = source

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible dsh-omp-tui problem
+description: Report a reproducible omdsh problem
 title: "[Bug]: "
 body:
   - type: markdown

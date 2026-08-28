@@ -48,6 +48,15 @@ const output = tui.plainOutput(offset)
 
 `waitForOutput()` observes the VT stream and can match content that has since been overwritten. `waitForScreen()` and `screenText()` inspect the reconstructed current viewport and are the correct seam for dialogs, autocomplete menus, and full-screen replacement.
 
+For autocomplete scenarios, the welcome frame is not a readiness signal. Agent preset composition can replace the autocomplete provider after that frame and cancel an in-flight menu request. Probe until a slash menu survives the refresh:
+
+```js
+await tui.waitForSlashMenu()
+// The editor now contains `/` and a visible command menu. Continue with key().
+```
+
+The helper clears the draft and retries `/` until a current-screen menu assertion passes. Use it instead of a fixed startup sleep.
+
 For a non-text side effect:
 
 ```js

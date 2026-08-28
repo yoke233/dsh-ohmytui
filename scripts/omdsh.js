@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omdsh: dsh-omp-tui 启动器（Node 实现，跨平台 bin 入口）。
+// omdsh: @yoke233/omdsh 启动器（Node 实现，跨平台 bin 入口）。
 // 只负责调用系统 PATH 中官方 dsh 的独立进程，并启动 tui profile。
 // 本项目不下载、不缓存 dsh；首次运行时自动把本包安装进 tui profile，
 // 之后检测到 profile 内版本低于启动器版本时自动更新。
@@ -15,22 +15,26 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { downloadReleaseAsset, fetchLatestRelease, releaseVersion } from './omdsh-update.js'
 
-const PACKAGE = 'dsh-omp-tui'
+const PACKAGE = '@yoke233/omdsh'
+const LEGACY_PACKAGES = ['dsh-omp-tui']
 const PROFILE = 'tui'
 const ownPackageJson = JSON.parse(
   fs.readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
 )
 const ownVersion = ownPackageJson.version
 
-const launcherHelp = `omdsh — dsh-omp-tui 启动器
+const launcherHelp = `omdsh — @yoke233/omdsh 启动器
 
 用法:
   omdsh [参数...]
+  omdsh update [--force]
 
 说明:
   omdsh 会调用系统 PATH 中的官方 dsh，并启动 --profile tui。
-  首次运行时自动把 dsh-omp-tui 安装到 tui profile；之后若 profile
+  omdsh update 从 GitHub 最新 Release 下载校验后的 tarball，并安装到 tui profile。
+  首次运行时自动把 @yoke233/omdsh 安装到 tui profile；之后若 profile
   内版本低于启动器版本，也会自动更新（可通过 OMDSH_NO_BOOTSTRAP=1
   跳过）。所有参数原样透传给 dsh（例如 --resume <session>、
   --session <session>）。
@@ -111,16 +115,33 @@ function missingProfileDependencies() {
   return Object.keys(ownPackageJson.dependencies ?? {}).filter(name =>
     !fs.existsSync(path.join(profileRoot(), 'node_modules', ...name.split('/'), 'package.json')))
 }
-function profilePackageSpecifier() {
+function profileManifest() {
   try {
-    const profile = JSON.parse(fs.readFileSync(path.join(profileRoot(), 'package.json'), 'utf8'))
-    return profile.dependencies?.[PACKAGE]
+    return JSON.parse(fs.readFileSync(path.join(profileRoot(), 'package.json'), 'utf8'))
   } catch {
     return undefined
   }
 }
 
+function profilePackageSpecifier() {
+  return profileManifest()?.dependencies?.[PACKAGE]
+}
 
+function legacyProfilePackages() {
+  const manifest = profileManifest()
+  return LEGACY_PACKAGES.filter(name => manifest?.dependencies?.[name] !== undefined)
+}
+
+function probeInstallTools() {
+  const dshProbe = runSync(dsh, ['--version'], { stdio: 'pipe' })
+  if (dshProbe.error || dshProbe.status !== 0) {
+    fail('未检测到 dsh CLI。请先安装官方客户端：npm install -g @deepseek-ai/dsh')
+  }
+  const pnpmProbe = runSync('pnpm', ['--version'], { stdio: 'pipe' })
+  if (pnpmProbe.error || pnpmProbe.status !== 0) {
+    fail('安装或更新需要 pnpm。请先安装：npm install -g pnpm（或启用 corepack：corepack enable pnpm）')
+  }
+}
 
 function compareVersions(a, b) {
   const aParts = a.split('-')[0].split('.').map(Number)
@@ -132,6 +153,44 @@ function compareVersions(a, b) {
     if (av !== bv) return av - bv
   }
   return 0
+}
+
+function removeLegacyProfilePackages() {
+  for (const legacy of legacyProfilePackages()) {
+    process.stderr.write(`omdsh: 正在迁移旧 bundle ${legacy} → ${PACKAGE}…\n`)
+    const removed = runSync(
+      dsh,
+      ['plugin', '--profile', PROFILE, 'remove', legacy],
+      { stdio: ['inherit', 'inherit', 'pipe'] },
+    )
+    if (removed.status !== 0) return removed
+  }
+  return undefined
+}
+
+function installStoredTarball(storedTarball) {
+  const removalFailure = removeLegacyProfilePackages()
+  if (removalFailure !== undefined) return removalFailure
+
+  const linkedPackage = path.join(profileRoot(), 'node_modules', ...PACKAGE.split('/'))
+  try {
+    if (fs.lstatSync(linkedPackage).isSymbolicLink()) {
+      fs.rmSync(linkedPackage, { recursive: true, force: true })
+    }
+  } catch {
+    // Fresh profiles have no installed package to unlink.
+  }
+  const runAdd = extraArgs => runSync(
+    dsh,
+    ['plugin', '--profile', PROFILE, 'add', ...extraArgs, storedTarball],
+    { stdio: ['inherit', 'inherit', 'pipe'] },
+  )
+  let result = runAdd([])
+  if (result.status !== 0 && String(result.stderr).includes('ERR_PNPM_ADDING_TO_ROOT')) {
+    process.stderr.write('omdsh: pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT），带 -w 重试…\n')
+    result = runAdd(['-w'])
+  }
+  return result
 }
 
 /** 打包后安装，避免 pnpm 将 file:目录降为不安装依赖的 link:。 */
@@ -155,25 +214,7 @@ function addToProfile() {
     fs.mkdirSync(packageCache, { recursive: true })
     const storedTarball = path.join(packageCache, path.basename(tarball))
     fs.copyFileSync(tarball, storedTarball)
-    const linkedPackage = path.join(profileRoot(), 'node_modules', PACKAGE)
-    try {
-      if (fs.lstatSync(linkedPackage).isSymbolicLink()) {
-        fs.rmSync(linkedPackage, { recursive: true, force: true })
-      }
-    } catch {
-      // Fresh profiles have no installed package to unlink.
-    }
-    const runAdd = extraArgs => runSync(
-      dsh,
-      ['plugin', '--profile', PROFILE, 'add', ...extraArgs, storedTarball],
-      { stdio: ['inherit', 'inherit', 'pipe'] },
-    )
-    let result = runAdd([])
-    if (result.status !== 0 && String(result.stderr).includes('ERR_PNPM_ADDING_TO_ROOT')) {
-      process.stderr.write('omdsh: pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT），带 -w 重试…\n')
-      result = runAdd(['-w'])
-    }
-    return result
+    return installStoredTarball(storedTarball)
   } finally {
     fs.rmSync(packDir, { recursive: true, force: true })
   }
@@ -182,7 +223,7 @@ function addToProfile() {
 function ensureProfile() {
   if (process.env.OMDSH_NO_BOOTSTRAP === '1') {
     if (installedProfileVersion() === undefined) {
-      fail('已跳过 profile 引导安装，但 tui profile 尚未安装 dsh-omp-tui。')
+      fail('已跳过 profile 引导安装，但 tui profile 尚未安装 @yoke233/omdsh。')
     }
     return
   }
@@ -190,14 +231,7 @@ function ensureProfile() {
   const installedVersion = installedProfileVersion()
   if (installedVersion === undefined) {
     // 先探测 dsh 和 pnpm，避免 add 执行到一半才报缺依赖。
-    const dshProbe = runSync(dsh, ['--version'], { stdio: 'pipe' })
-    if (dshProbe.error || dshProbe.status !== 0) {
-      fail('未检测到 dsh CLI。请先安装官方客户端：npm install -g @deepseek-ai/dsh')
-    }
-    const pnpmProbe = runSync('pnpm', ['--version'], { stdio: 'pipe' })
-    if (pnpmProbe.error || pnpmProbe.status !== 0) {
-      fail('首次安装需要 pnpm。请先安装：npm install -g pnpm（或启用 corepack：corepack enable pnpm）')
-    }
+    probeInstallTools()
 
     process.stderr.write(`omdsh: 首次运行，正在初始化 ${PROFILE} profile（${PACKAGE}@${ownVersion}）…\n`)
     const result = addToProfile()
@@ -205,6 +239,11 @@ function ensureProfile() {
       fail('插件安装失败。可稍后手工重试：dsh plugin --profile tui add <tgz 或 file:包路径>')
     }
     return
+  }
+
+  const removalFailure = removeLegacyProfilePackages()
+  if (removalFailure !== undefined) {
+    fail(`旧 bundle 迁移失败：${String(removalFailure.stderr || removalFailure.error || 'unknown error').trim()}`)
   }
 
   const missingDependencies = missingProfileDependencies()
@@ -230,7 +269,7 @@ function ensureProfile() {
   if (compareVersions(installedVersion, ownVersion) > 0) return
 
   process.stderr.write(
-    `omdsh: 检测到 profile 内 dsh-omp-tui 为 v${installedVersion}，正在自动更新到 v${ownVersion}…\n`,
+    `omdsh: 检测到 profile 内 @yoke233/omdsh 为 v${installedVersion}，正在自动更新到 v${ownVersion}…\n`,
   )
   const result = addToProfile()
   if (result.status !== 0) {
@@ -239,6 +278,49 @@ function ensureProfile() {
     )
   }
   process.stderr.write(`omdsh: profile 已更新为 v${installedProfileVersion() ?? ownVersion}。\n`)
+}
+
+async function updateProfileFromGitHub(force) {
+  probeInstallTools()
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+  process.stderr.write('omdsh: 正在查询 GitHub 最新 Release…\n')
+  const release = await fetchLatestRelease({ token })
+  const latestVersion = releaseVersion(release)
+  const installedVersion = installedProfileVersion()
+  if (
+    !force
+    && legacyProfilePackages().length === 0
+    && installedVersion !== undefined
+    && compareVersions(installedVersion, latestVersion) >= 0
+  ) {
+    process.stderr.write(`omdsh: tui profile 已是最新版本 v${installedVersion}。\n`)
+    return
+  }
+
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+  const packageCache = path.join(dshHome, 'profile-packages', PROFILE)
+  process.stderr.write(`omdsh: 正在下载 @yoke233/omdsh v${latestVersion}…\n`)
+  const downloaded = await downloadReleaseAsset(release, packageCache, { token })
+  const result = installStoredTarball(downloaded.path)
+  if (result.status !== 0) {
+    fail(`GitHub Release 安装失败：${String(result.stderr || 'unknown error').trim()}`)
+  }
+  const installed = installedProfileVersion()
+  if (installed !== latestVersion) {
+    fail(`安装校验失败：期望 v${latestVersion}，实际 ${installed === undefined ? '未安装' : `v${installed}`}`)
+  }
+  process.stderr.write(`omdsh: tui profile 已更新为 v${installed}。当前 TUI 请执行 /reload。\n`)
+}
+
+if (args[0] === 'update') {
+  const updateArgs = args.slice(1)
+  if (updateArgs.some(arg => arg !== '--force')) fail('update 仅支持可选参数 --force。')
+  try {
+    await updateProfileFromGitHub(updateArgs.includes('--force'))
+    process.exit(0)
+  } catch (error) {
+    fail(`更新失败：${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 if (process.env.DSH_DEBUG === '1') {
@@ -288,10 +370,13 @@ function runGeneration(innerArgs) {
     // 优雅析构（最长 10s 看门狗）会推迟退出码路径。监视 handoff 出现即播报，
     // 让用户在析构空窗期就知道 reload 已被受理，而不是等子进程真正退出。
     let announced = false
-    fs.watchFile(handoffPath, { interval: 300 }, (curr) => {
-      if (announced || curr.mtimeMs === 0) return
+    const announceReload = () => {
+      if (announced) return
       announced = true
       process.stderr.write('\nomdsh: 正在重启 TUI 并恢复当前会话…\n')
+    }
+    fs.watchFile(handoffPath, { interval: 300 }, (curr) => {
+      if (curr.mtimeMs !== 0) announceReload()
     })
     const finish = (outcome) => {
       fs.unwatchFile(handoffPath)
@@ -311,7 +396,10 @@ function runGeneration(innerArgs) {
       process.stderr.write(`omdsh: 启动 dsh 失败: ${String(err)}\n`)
       finish({ failedCode: 1 })
     })
-    child.on('exit', (code, signal) => finish({ code, signal }))
+    child.on('exit', (code, signal) => {
+      if (code === RELOAD_EXIT_CODE && fs.existsSync(handoffPath)) announceReload()
+      finish({ code, signal })
+    })
   })
 }
 

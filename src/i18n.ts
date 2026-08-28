@@ -18,6 +18,7 @@ export type Messages = {
   headerWelcome: string
   headerTips: string
   headerCommands: string
+  headerShell: string
   headerSessions: string
   headerComplete: string
   headerExpand: string
@@ -145,6 +146,7 @@ export type Messages = {
   noticeCompaction400Hint: string
   noticeTurnEnded: string
   noticeTurnFailed: string
+  noticeRetrying: string
   noticeToolCards: string
   noticeHookBlocked: string
   noticeSkipPermissionsFailed: string
@@ -321,6 +323,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     headerWelcome: '欢迎回来！',
     headerTips: '小贴士',
     headerCommands: '打开命令',
+    headerShell: '运行 shell 命令',
     headerSessions: '引用会话与文件',
     headerComplete: '补全',
     headerExpand: '展开工具输出',
@@ -444,7 +447,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeCompactionHint: '压缩失败通常表示可压缩历史太少或摘要未比原文更短。建议继续对话积累更多历史后再试。',
     noticeCompaction400Hint: '压缩请求被模型 API 拒绝（HTTP 400）。请检查 DEEPSEEK_BASE_URL 网关是否兼容 compaction 请求，以及当前模型是否支持该请求体。',
     noticeTurnEnded: '回合结束：{reason}。',
-    noticeTurnFailed: '回合失败（{code}）：{error}',
+    noticeTurnFailed: '回合失败（{code}，第 {attempt} 次尝试）：{error}',
+    noticeRetrying: '请求失败，正在重试 {retry}/{maximum}（等待 {delay}）',
     noticeToolCards: '工具卡：{visibility}。',
     noticeHookBlocked: 'hook 拦截（{point}）：{decision}。',
     noticeSkipPermissionsFailed: '--yolo 应用失败：{error}',
@@ -617,6 +621,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     headerWelcome: 'Welcome back!',
     headerTips: 'Tips',
     headerCommands: '/ for commands',
+    headerShell: '! for shell commands',
     headerSessions: '@ for sessions and files',
     headerComplete: 'Tab to complete',
     headerExpand: 'Ctrl+O to expand tool output',
@@ -740,7 +745,8 @@ export const MESSAGES: Record<Locale, Messages> = {
     noticeCompactionHint: 'Compaction usually fails when the compactable history is too small or the summary is not shorter. Continue the conversation and retry later.',
     noticeCompaction400Hint: 'The model API rejected the compaction request (HTTP 400). Check whether DEEPSEEK_BASE_URL gateway supports compaction requests and whether the current model accepts the request body.',
     noticeTurnEnded: 'Turn ended: {reason}.',
-    noticeTurnFailed: 'Turn failed ({code}): {error}',
+    noticeTurnFailed: 'Turn failed ({code}, attempt {attempt}): {error}',
+    noticeRetrying: 'Request failed; retrying {retry}/{maximum} after {delay}',
     noticeToolCards: 'Tool cards {visibility}.',
     noticeHookBlocked: 'Hook blocked ({point}): {decision}.',
     noticeSkipPermissionsFailed: 'Failed to apply --yolo: {error}',

@@ -94,7 +94,6 @@ export function parseSkillInvocation(line: string): { name: string; request: str
 export function syncSkillCommands(
   commands: SlashCommand[],
   skills: readonly SkillCommandCandidate[],
-  argumentHint = '[request]',
 ): void {
   const regularCommands = commands.filter(command => !command.name.startsWith('skill:'))
   const skillCommands = skills
@@ -102,7 +101,6 @@ export function syncSkillCommands(
     .map((skill): SlashCommand => ({
       name: `skill:${skill.name}`,
       description: skill.description,
-      argumentHint,
     }))
   commands.splice(0, commands.length, ...regularCommands, ...skillCommands)
 }
@@ -117,7 +115,19 @@ export class SkillAwareAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
     options: Parameters<AutocompleteProvider['getSuggestions']>[3],
   ): Promise<AutocompleteSuggestions | null> {
-    return this.inner.getSuggestions(lines, cursorLine, cursorCol, options)
+    const suggestions = await this.inner.getSuggestions(lines, cursorLine, cursorCol, options)
+    if (suggestions === null) return null
+
+    // Skill completions intentionally omit the usual trailing space. That leaves
+    // the cursor on the exact slash command, so the inner provider immediately
+    // offers the item that was just accepted again. Remove only that completed
+    // item while preserving any other fuzzy matches.
+    const items = suggestions.items.filter(item => (
+      !item.value.startsWith('skill:') || suggestions.prefix !== `/${item.value}`
+    ))
+    if (items.length === 0) return null
+    if (items.length === suggestions.items.length) return suggestions
+    return { ...suggestions, items }
   }
 
   applyCompletion(

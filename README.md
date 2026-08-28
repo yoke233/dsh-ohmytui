@@ -1,6 +1,6 @@
 <div align="center">
 
-# dsh-omp-tui
+# omdsh
 
 **为 DeepSeek Harness 带来 OMP 风格、可配置、可远程控制的终端界面。**
 
@@ -11,13 +11,13 @@
 </div>
 
 <p align="center">
-  <img src="docs/assets/tui-welcome.png" alt="dsh-omp-tui 在 WezTerm 中的欢迎页，展示会话信息、OMP Powerline 状态栏与 DeepSeek 模型状态" width="900">
+  <img src="docs/assets/tui-welcome.png" alt="@yoke233/omdsh 在 WezTerm 中的欢迎页，展示会话信息、OMP Powerline 状态栏与 DeepSeek 模型状态" width="900">
 </p>
 
-`dsh-omp-tui` 是 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) 的独立 TUI profile bundle。它负责终端呈现、输入交互、主题、设置与微信桥；agent、模型、工具、会话持久化和沙箱仍由 dsh harness 提供。
+`@yoke233/omdsh` 是 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) 的独立 TUI profile bundle。它负责终端呈现、输入交互、主题、设置与微信桥；agent、模型、工具、会话持久化和沙箱仍由 dsh harness 提供。
 
 > [!IMPORTANT]
-> 推荐通过 **`omdsh` 启动器**使用本插件：它自动安装/升级 profile，并作为 `/reload` 的监督进程，让插件更新无需退出终端即可生效。dsh 本身仍处于 developer preview，建议固定宿主版本与插件 release。遇到问题请提交 [Issue](https://github.com/yoke233/dsh-ohmytui/issues)。
+> 推荐通过 **`omdsh` 启动器**使用本插件：它自动安装/升级 profile，并作为 `/reload` 的监督进程，让插件更新无需退出终端即可生效。dsh 本身仍处于 developer preview，建议固定宿主版本与插件 release。遇到问题请提交 [Issue](https://github.com/yoke233/omdsh/issues)。
 
 ## 为什么使用它
 
@@ -39,7 +39,7 @@
 <br>
 
 <p align="center">
-  <img src="docs/assets/tui-help.png" alt="dsh-omp-tui 的帮助面板，展示快捷键和斜杠命令" width="1000">
+  <img src="docs/assets/tui-help.png" alt="@yoke233/omdsh 的帮助面板，展示快捷键和斜杠命令" width="1000">
 </p>
 
 </details>
@@ -55,22 +55,21 @@
 
 ### 1. 安装（推荐：omdsh）
 
-安装官方 dsh、pnpm 与本插件的 release 包（全局安装后 `omdsh` 命令即在 PATH 中）：
+安装官方 dsh、pnpm 与 `omdsh`（全局安装后命令即在 PATH 中）：
 
 ```sh
 npm install --global pnpm@11.7.0 @deepseek-ai/dsh@0.1.1-rc.2
-npm install --global \
-  https://github.com/yoke233/dsh-ohmytui/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
+npm install --global @yoke233/omdsh
 ```
 
-之后无需手工初始化 profile：`omdsh` 首次运行会自动把本插件安装进 `tui` profile，之后检测到旧版本时自动升级。release tarball 已包含构建后的 `lib/`，用户机器无需编译。
+之后无需手工初始化 profile：`omdsh` 首次运行会自动安装或迁移 `tui` profile；`omdsh update` 可随时从 GitHub 最新 Release 下载、校验并安装 bundle。release tarball 已包含构建后的 `lib/`，用户机器无需编译。
 
 <details>
 <summary>手工安装到 profile（不经 omdsh）</summary>
 
 ```sh
 npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
-  https://github.com/yoke233/dsh-ohmytui/releases/download/v0.5.0/dsh-omp-tui-0.5.0.tgz
+  https://github.com/yoke233/omdsh/releases/download/v0.6.0/yoke233-omdsh-0.6.0.tgz
 ```
 
 </details>
@@ -121,7 +120,7 @@ dsh --profile tui
 dsh --profile tui --dump-config
 ```
 
-输出中应包含 `dsh-omp-tui` bundle，以及 `dsh-omp-tui/startup`、`dsh-omp-tui/prompt` 和 `dsh-omp-tui`。
+输出中应包含 `@yoke233/omdsh` bundle，以及 `@yoke233/omdsh/startup`、`@yoke233/omdsh/prompt` 和 `@yoke233/omdsh`。
 
 ## 常用操作
 
@@ -144,6 +143,7 @@ dsh --profile tui --dump-config
 
 | 命令 | 作用 |
 | --- | --- |
+| `!<command>` | 用 Profile 当前平台 shell 执行命令（Windows PowerShell、POSIX bash）；结果持久显示为 shell 卡，并作为用户消息开启下一轮 agent 会话 |
 | `/help` | 查看运行中实例的完整命令与快捷键 |
 | `/model` | 选择 provider、model 和思考等级 |
 | `/new` · `/resume [id]` | 新建或恢复持久化会话 |
@@ -154,7 +154,7 @@ dsh --profile tui --dump-config
 | `/settings` | 打开可视化设置面板 |
 | `/skills` · `/skill:<name>` | 浏览或直接调用技能 |
 
-更多命令以运行中的 `/help` 为准。`read-only` 与 `workspace-write` 模式下，越权操作会显示授权原因并等待批准；`full-access` 不显示审批框。
+更多命令以运行中的 `/help` 为准。`!` 命令复用 dsh 的 `ctx.shell` executor，不绕过 Profile 的 cwd、环境清理、超时和 sandbox；命令完成后 stdout、stderr 与退出状态会进入持久用户消息，因此 agent 能在随后独立回合看到并回应。`read-only` 与 `workspace-write` 模式下，越权操作仍受 sandbox 限制；`full-access` 不显示审批框。
 
 ## 微信远程桥
 
@@ -215,8 +215,8 @@ dsh --profile tui --dump-config
 ## 参与开发
 
 ```sh
-git clone https://github.com/yoke233/dsh-ohmytui.git
-cd dsh-ohmytui
+git clone https://github.com/yoke233/omdsh.git
+cd omdsh
 pnpm install --frozen-lockfile
 pnpm run check
 pnpm run prepare

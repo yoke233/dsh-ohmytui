@@ -36,7 +36,7 @@ Run `pnpm run check` before committing. Completion criterion: the focused behavi
 Choose the package under test explicitly:
 
 - **Current source change** (default): omit `--tui-package`; the runner executes `pnpm pack` from `--project-root`.
-- **Exact local/release artifact**: pass `--tui-package D:\path\dsh-omp-tui-x.y.z.tgz`; the runner skips source packing.
+- **Exact local/release artifact**: pass `--tui-package D:\path\yoke233-omdsh-x.y.z.tgz`; the runner skips source packing.
 - **Composed local bundles**: repeat `--extra-bundle D:\path\plugin.tgz` for each bundle. They install after the TUI package into the same isolated Profile, which is the correct seam for integration.
 
 The user's normal `tui` Profile is never reused or mutated. “Installed locally” and “source worktree” are separate inputs; compare them by running the same scenario once per package mode.
@@ -46,6 +46,25 @@ Run the packaged startup/help smoke scenario:
 ```powershell
 node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario smoke
 ```
+
+Run the same autocomplete acceptance scenario against both package sources. The first command packs the current worktree; the second tests exactly the named archive:
+
+```powershell
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario autocomplete
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs `
+  --scenario autocomplete `
+  --tui-package D:\packages\yoke233-omdsh-x.y.z.tgz
+```
+
+Autocomplete scenarios must call `tui.waitForSlashMenu()` after the welcome frame. Startup preset composition can replace the provider and cancel a menu request; a fixed sleep or the welcome text alone is not a readiness assertion. Completion criterion: both runs report `slashMenuReady`, the command-to-argument transition, the duplicate-hint assertion, and a stable DSH PID.
+
+Run the network-free bang-shell scenario when leading-`!` parsing, platform shell execution, shell result cards, or model delivery changes:
+
+```powershell
+node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs --scenario bang-shell
+```
+
+Completion criterion: the report records `shellCardRendered`, `resultVisibleToAgent`, `envelopeHidden`, and a stable DSH PID. Run it once from source and once against the exact tarball when changing packaged shell integration.
 
 Run the supervisor-based reload acceptance scenario (starts the TUI under `scripts/omdsh.js`, asserts the dsh PID is REPLACED across `/reload` while the supervisor terminal process stays, changed installed plugin code takes effect, and the new generation resumes the same session):
 
@@ -76,7 +95,7 @@ Run an already-built TUI archive with another local bundle:
 ```powershell
 node .agents/skills/test-dsh-tui/scripts/run-live-test.mjs `
   --scenario smoke `
-  --tui-package D:\packages\dsh-omp-tui-0.5.2.tgz `
+  --tui-package D:\packages\yoke233-omdsh-0.5.2.tgz `
   --extra-bundle D:\packages\dsh-prime-agent-0.5.0.tgz `
   --keep-artifacts
 ```
@@ -90,7 +109,7 @@ Failed runs are retained automatically and print their artifact directory.
 Changes to `scripts/omdsh.js` installation, update, or repair behavior need a launcher bootstrap acceptance run in addition to packaged ConPTY scenarios:
 
 1. Use a fresh isolated `DSH_HOME`; set `DSH_DEBUG=1` so `omdsh` completes bootstrap without leaving a TUI running.
-2. Assert the Profile records `dsh-omp-tui` as `file:<DSH_HOME>/profile-packages/tui/<package>.tgz`, not `link:` or a temporary path.
+2. Assert the Profile records `@yoke233/omdsh` as `file:<DSH_HOME>/profile-packages/tui/<package>.tgz`, not `link:` or a temporary path.
 3. Assert packages named directly by `cordis.patch.yml` resolve under `<DSH_HOME>/profiles/tui/node_modules`; the plugin's source-worktree `node_modules` is not evidence.
 4. Start the actual launcher in ConPTY and wait for the welcome screen, then stop its process tree. For a reported failure in the user's real Profile, repeat this final startup against that Profile after the isolated run passes.
 
@@ -134,9 +153,11 @@ DSH_E2E=1 pnpm exec node --disable-warning=ExperimentalWarning --test --experime
 - Correct raw output but wrong current screen: assert with `screenText()` and inspect the saved snapshot; stale scrollback is not current UI state.
 - Input has no effect: use `submit()` for a line, `key()` for raw control sequences, and wait for the welcome screen before sending input.
 - Packaged import failure: check `package.json` exports, `cordis.patch.yml`, and prepare-build entries rather than source-only resolution.
-- `ERR_MODULE_NOT_FOUND` from the Profile root for a package named in `cordis.patch.yml`: inspect the `dsh-omp-tui` spec in the Profile's `package.json`. A `link:` spec is a broken bootstrap result; reinstall from a persistent packed `.tgz` and verify the dependency exists in the Profile root.
+- `ERR_MODULE_NOT_FOUND` from the Profile root for a package named in `cordis.patch.yml`: inspect the `@yoke233/omdsh` spec in the Profile's `package.json`. A `link:` spec is a broken bootstrap result; reinstall from a persistent packed `.tgz` and verify the dependency exists in the Profile root.
 - A failed scenario automatically prints the last 80 lines of `pty-output.log`; start there before opening the full artifact. Installation failures print their own command log immediately.
 - A Profile reinstall fails on a missing `file:` tarball for another plugin: repair that stale direct dependency first. Package archives referenced by Profile `package.json` must remain at their recorded paths.
+- A rebuilt tarball keeps the same version and file path: verify the installed `node_modules/<package>` contains the changed code. pnpm may reuse the prior file package; remove the bundle and add the persistent tarball again when verification shows stale contents.
+- Autocomplete is absent immediately after the welcome frame: use `waitForSlashMenu()` so provider replacement during startup cannot strand the first request. Once ready, drive text with `key()` and assert the current screen.
 - PID changes: treat the test as failed even if the final command succeeds.
 - A Profile package is installed but absent after reload: inspect the temporary Profile's `package.json` and `dsh.profile.bundles`.
 

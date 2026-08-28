@@ -43,6 +43,23 @@ describe('SkillAwareAutocompleteProvider', () => {
     assert.ok(suggestions)
     assert.equal(suggestions!.items[0]!.value, 'skill:git-commit')
   })
+
+  it('hides an exact skill suggestion after it has been completed', async () => {
+    const inner = innerStub({
+      items: [{ value: 'skill:distill', label: 'skill:distill [请求]' }],
+      prefix: '/skill:distill',
+    })
+    const provider = new SkillAwareAutocompleteProvider(inner)
+
+    const suggestions = await provider.getSuggestions(
+      ['/skill:distill'],
+      0,
+      '/skill:distill'.length,
+      {} as never,
+    )
+
+    assert.equal(suggestions, null)
+  })
 })
 
 describe('skill slash commands', () => {
@@ -77,7 +94,6 @@ describe('skill slash commands', () => {
       {
         name: 'skill:beautify-github-readme',
         description: 'Beautify a GitHub README',
-        argumentHint: '[request]',
       },
     ])
   })

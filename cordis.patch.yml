@@ -1,4 +1,4 @@
-# dsh-omp-tui bundle patch (declared by `dsh.bundle.patch`): applied over the
+# @yoke233/omdsh bundle patch (declared by `dsh.bundle.patch`): applied over the
 # dsh-base layer when this package appears in a profile's `dsh.profile.bundles`.
 # Overrides base rows by id and inserts the terminal front door plus its
 # projection/storage support rows.
@@ -58,7 +58,7 @@
 
 - insert:
     - id: session-persistence-conversation-gate
-      name: 'dsh-omp-tui/session-persistence'
+      name: '@yoke233/omdsh/session-persistence'
 
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
@@ -97,7 +97,7 @@
 
     # Profile-owned provider: same first-prompt contract with persistent route settings.
     - id: session-title-llm-tui
-      name: 'dsh-omp-tui/session-title'
+      name: '@yoke233/omdsh/session-title'
       config:
         targetWords: 5
         targetCjkCharacters: 10
@@ -106,27 +106,27 @@
         timeoutMs: 60000
 
     - id: tui-prompt
-      name: 'dsh-omp-tui/prompt'
+      name: '@yoke233/omdsh/prompt'
 
     - id: tui-startup
-      name: 'dsh-omp-tui/startup'
+      name: '@yoke233/omdsh/startup'
 
     # Historical in-process reload investigation (route A), superseded by the
     # omdsh supervisor respawn: /reload is handled inside the TUI row and needs
     # no service row. Keep the module source for the docs/RELOAD_ISSUE.md record.
     - id: tui-reload
-      name: 'dsh-omp-tui/reload'
+      name: '@yoke233/omdsh/reload'
       disabled: true
 
     # WeChat (iLink) bridge: opt-in remote control via the official Tencent
     # WeChat channel. Enable this entry in a later profile patch when needed;
     # keeping it disabled avoids background receivers and account state by default.
     - id: wechat-ilink
-      name: 'dsh-omp-tui/wechat'
+      name: '@yoke233/omdsh/wechat'
       disabled: true
 
     - id: tui
-      name: 'dsh-omp-tui'
+      name: '@yoke233/omdsh'
       inject: [tuiStartup, approval, jobs]
       config:
         sessionId: !!js ctx.tuiStartup.sessionId ?? ctx.tuiStartup.resumeSessionId

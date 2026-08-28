@@ -33,8 +33,8 @@ describe('translator', () => {
     assert.equal(t('noticeSessionResumed', { id: 's-1' }), '会话 s-1 已恢复。')
     assert.equal(t('helpCtrlC'), '中断当前回合')
     assert.equal(
-      t('noticeTurnFailed', { code: 'INVALID_CREDENTIAL', error: 'token rejected' }),
-      '回合失败（INVALID_CREDENTIAL）：token rejected',
+      t('noticeTurnFailed', { code: 'INVALID_CREDENTIAL', attempt: 3, error: 'token rejected' }),
+      '回合失败（INVALID_CREDENTIAL，第 3 次尝试）：token rejected',
     )
     assert.equal(t('noticeReloadedConfig'), 'Profile 配置已更新，正在刷新 TUI。')
     assert.equal(t('noticeReloadUnchanged'), 'Profile 配置未变化，正在刷新 TUI 代码。')
@@ -45,8 +45,8 @@ describe('translator', () => {
     const t = createTranslator('en')
     assert.equal(t('noticeSessionResumed', { id: 's-1' }), 'Session s-1 resumed.')
     assert.equal(
-      t('noticeTurnFailed', { code: 'RATE_LIMIT', error: 'try later' }),
-      'Turn failed (RATE_LIMIT): try later',
+      t('noticeTurnFailed', { code: 'RATE_LIMIT', attempt: 6, error: 'try later' }),
+      'Turn failed (RATE_LIMIT, attempt 6): try later',
     )
     assert.equal(t('noticeReloadedConfig'), 'Profile configuration updated; refreshing the TUI.')
     assert.equal(t('noticeReloadUnchanged'), 'Profile configuration is unchanged; refreshing live TUI code.')

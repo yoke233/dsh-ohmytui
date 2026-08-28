@@ -92,7 +92,7 @@ function run(command, args, { cwd, env = process.env, logPath, inherit = false }
 
 function newestPackage(directory) {
   return readdirSync(directory)
-    .filter(name => /^dsh-omp-tui-.*\.tgz$/.test(name))
+    .filter(name => /^yoke233-omdsh-.*\.tgz$/.test(name))
     .map(name => ({ path: join(directory, name), mtime: statSync(join(directory, name)).mtimeMs }))
     .sort((left, right) => right.mtime - left.mtime)[0]?.path
 }
@@ -122,7 +122,7 @@ try {
       logPath: join(artifacts, 'pack-tui.log'),
     })
     tuiPackage = newestPackage(artifacts)
-    if (tuiPackage === undefined) throw new Error('pnpm pack did not produce a dsh-omp-tui tarball.')
+    if (tuiPackage === undefined) throw new Error('pnpm pack did not produce a @yoke233/omdsh tarball.')
   }
 
   const isolatedEnv = { ...process.env, DSH_HOME: dshHome }

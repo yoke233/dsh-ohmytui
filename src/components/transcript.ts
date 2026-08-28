@@ -186,6 +186,7 @@ export class HeaderComponent implements Component {
     const rightLines = [
       ` ${this.palette.bold(this.palette.accent(this.t('headerTips')))}`,
       ` ${this.palette.dim('/')} ${this.palette.muted(this.t('headerCommands'))}`,
+      ` ${this.palette.dim('!')} ${this.palette.muted(this.t('headerShell'))}`,
       ` ${this.palette.dim('@')} ${this.palette.muted(this.t('headerSessions'))}`,
       ` ${this.palette.dim('Tab')} ${this.palette.muted(this.t('headerComplete'))}`,
       ` ${this.palette.dim('Ctrl+O')} ${this.palette.muted(this.t('headerExpand'))}`,

@@ -940,8 +940,8 @@ describe('composer chrome', () => {
     assert.equal(visibleWidth(top!), 72)
   })
   it('renders a faint expected-argument hint inside the composer', () => {
-    const hint = new CommandHintComponent(() => '/mode <standard|minimal|code|cordis|user preset>', palette)
-    assert.deepEqual(hint.render(56), ['  /mode <standard|minimal|code|cordis|user preset>'])
+    const hint = new CommandHintComponent(() => '<standard|minimal|code|cordis|user preset>', palette)
+    assert.deepEqual(hint.render(56), ['  <standard|minimal|code|cordis|user preset>'])
     const hidden = new CommandHintComponent(() => undefined, palette)
     assert.deepEqual(hidden.render(48), [])
   })

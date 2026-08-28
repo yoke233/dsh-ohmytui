@@ -20,7 +20,7 @@
 
 ## 原始目标
 
-`/reload` 的目标不是只刷新 `dsh-omp-tui`，而是重新加载当前 Profile 的完整插件运行时，包括：
+`/reload` 的目标不是只刷新 `@yoke233/omdsh`，而是重新加载当前 Profile 的完整插件运行时，包括：
 
 - 当前 TUI bundle 的代码与配置；
 - 后续安装的任意第三方 bundle/plugin；
@@ -124,7 +124,7 @@ name: some-plugin
 
 ## Reload Coordinator 的归属
 
-完整 Profile reload 不能长期由 `dsh-omp-tui/reload` 所有，因为：
+完整 Profile reload 不能长期由 `@yoke233/omdsh/reload` 所有，因为：
 
 - TUI 自身可能被更新、移除或加载失败；
 - reload coordinator 不能可靠地负责替换自己；

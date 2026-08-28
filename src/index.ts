@@ -2,7 +2,7 @@
  * Interactive DeepSeek Harness front door, visually aligned with the local
  * OMP 17.2.15 Catppuccin layout while retaining dsh-native agent, session,
  * command, and persistence contracts.
- * @module dsh-omp-tui
+ * @module @yoke233/omdsh
  */
 
 import { statSync } from 'node:fs'
@@ -54,6 +54,8 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-jobs'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
+import type {} from '@deepseek-ai/dsh-shell'
 // Declaration merge: the `hook/invoked` / `hook/result` session events written
 // by the dsh-hooks-claude-code bridge (via dsh-hook-protocol).
 import type {} from '@deepseek-ai/dsh-hook-protocol'
@@ -81,7 +83,7 @@ import {
 import { parseTuiPromptTemplate } from './prompt.ts'
 import { createTranslator, displayErrorCode, type MessageKey, type Translator } from './i18n.ts'
 import { orderJobs, registerJobsCommand } from './jobs.ts'
-import { runningTurnKeyAction } from './input.ts'
+import { restoreComposerFocus, runningTurnKeyAction } from './input.ts'
 import {
   FULL_ACCESS_REGISTRY_NAME,
   FULL_ACCESS_UI_NAME,
@@ -187,6 +189,17 @@ import {
 import { displayInlineText, displayText } from './components/text.ts'
 import { createOrcaStatusReporter } from './orca-status.ts'
 import { WorkingWordRotation, compactingActivityText, formatWorkingElapsed, workingActivityText } from './working-words.ts'
+import { formatRetryDelay, requestAttemptForTurn, retryActivity, type RetryActivity } from './retry-display.ts'
+import {
+  parseBangShellCommand,
+  parseShellUserMessage,
+  renderShellResultText,
+  serializeShellUserMessage,
+  shellCommandResult,
+  shellInfrastructureFailure,
+  shellResultFailed,
+  type ShellCommandResult,
+} from './shell-command.ts'
 import { filterProjectSessions, sameProject } from './session-filter.ts'
 import { foldSessionView, hasConversationData, liveChildSubagents, recordConversationPreset, sessionSubagent } from './session-lifecycle.ts'
 import type { BridgeConfig, WechatBridge } from './wechat/index.ts'
@@ -255,7 +268,7 @@ function commandInputHint(text: string, commands: readonly SlashCommand[]): stri
   const match = /^\/([^\s]*)/.exec(text)
   if (match?.[1] === undefined) return undefined
   const command = commands.find(entry => entry.name === match[1])
-  return command?.argumentHint === undefined ? undefined : `/${command.name} ${command.argumentHint}`
+  return command?.argumentHint
 }
 
 /** Format a token count compactly: 1234 → "1.2k", 1234567 → "1.2M". */
@@ -291,7 +304,7 @@ async function readGitBranch(cwd: string): Promise<string | undefined> {
 
 /** The terminal mode's plugin entry: mounts the whole UI in its constructor. */
 export class Tui extends Service {
-  static inject = ['tuiStartup', 'agents', 'tuiPrompt', 'commands', 'attachments', 'jobs', 'tokenMeter', 'llm', 'userQuestions', 'approval', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
+  static inject = ['tuiStartup', 'agents', 'tuiPrompt', 'commands', 'attachments', 'jobs', 'tokenMeter', 'llm', 'shell', 'userQuestions', 'approval', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
   static Config = TuiConfigSchema
 
   /** Mount 后由 TUI 赋值：读取当前前台 agent。 */
@@ -548,9 +561,33 @@ export class Tui extends Service {
     const workingIndicator = new WorkingIndicatorComponent()
     const askSlot = new Container()
     let commandHintText: string | undefined
-    const commandHint = new CommandHintComponent(() => commandHintText, palette)
+    const commandHint = new CommandHintComponent(
+      () => editor.isShowingAutocomplete() ? undefined : commandHintText,
+      palette,
+    )
     const inputBorder = new InputBorderComponent(palette)
     let footer = new ComposerFooterComponent(leftTemplate, promptValue, palette)
+    let composerMounted = false
+    let inlineQuestionDepth = 0
+    const askInline = async (
+      questions: Parameters<typeof runInlineQuestionFlow>[4],
+      signal: Parameters<typeof runInlineQuestionFlow>[5],
+    ) => {
+      inlineQuestionDepth++
+      try {
+        return await runInlineQuestionFlow(
+          ui,
+          askSlot,
+          palette,
+          t,
+          questions,
+          signal,
+          () => ui.setFocus(editor),
+        )
+      } finally {
+        inlineQuestionDepth--
+      }
+    }
 
     // Keep transcript and composer in normal terminal flow. The application
     // does not reserve a fullscreen viewport or pin the composer to the bottom.
@@ -558,6 +595,7 @@ export class Tui extends Service {
 
     const rebuildChrome = (): void => {
       ui.clear()
+      composerMounted = false
       if (backgroundJobId !== undefined) {
         ui.addChild(backgroundJobView)
         ui.addChild(subagentPanel)
@@ -574,6 +612,7 @@ export class Tui extends Service {
       ui.addChild(inputBorder)
       ui.addChild(footer)
       ui.addChild(subagentPanel)
+      composerMounted = true
       ui.setFocus(editor)
     }
     rebuildChrome()
@@ -677,12 +716,23 @@ export class Tui extends Service {
     let workingWord = 'Working'
     let workingStartedAt = 0
     let isCompacting = false
+    let activeRetry: RetryActivity | undefined
     const refreshActivity = (): void => {
       if (isCompacting) {
         indicatorValue.set(undefined)
         workingIndicator.setText(palette.bold(palette.warning(compactingActivityText(
           SPINNER_FRAMES[spinnerIndex] ?? '',
           t('noticeCompacting'),
+        ))))
+      } else if (activeRetry !== undefined) {
+        indicatorValue.set(undefined)
+        workingIndicator.setText(palette.bold(palette.warning(compactingActivityText(
+          SPINNER_FRAMES[spinnerIndex] ?? '',
+          t('noticeRetrying', {
+            retry: activeRetry.retry,
+            maximum: activeRetry.maximum,
+            delay: formatRetryDelay(activeRetry.delayMs),
+          }),
         ))))
       } else {
         indicatorValue.set(undefined)
@@ -872,6 +922,29 @@ export class Tui extends Service {
     let transcriptStart = 0
     /** Idle submissions already painted while awaiting their durable user/message event. */
     const immediateUserMessages = new Map<string, Component>()
+    /** Completed shell cards awaiting replacement by their durable user/message projection. */
+    const immediateShellMessages = new Map<string, Component>()
+    const appendShellCard = (shell: string, command: string, result?: ShellCommandResult): {
+      card: ToolCardComponent
+      wrapper: Container
+    } => {
+      const wrapper = new Container()
+      wrapper.addChild(new Spacer(1))
+      const card = registerVisibilityCard(
+        allToolCards,
+        new ToolCardComponent(shell, JSON.stringify({ command }), maxToolOutputLines, palette),
+        toolsVisibility,
+      )
+      if (result !== undefined) {
+        card.updateDispatch(
+          [{ type: 'text', text: renderShellResultText(result) }],
+          shellResultFailed(result),
+        )
+      }
+      wrapper.addChild(card)
+      chat.addChild(wrapper)
+      return { card, wrapper }
+    }
     /** Invalidates chunked rebuilds that are superseded by a newer window. */
     let transcriptBuildGeneration = 0
     const renderEvent = (
@@ -884,7 +957,14 @@ export class Tui extends Service {
         case 'user/message': {
           if (pendingInputPanel.remove(event.data.id)) refreshPendingInput()
           const source = event.data.source
-          const text = displayText(contentText(event.data.content).trim())
+          const rawText = contentText(event.data.content).trim()
+          const shellResult = source.kind === 'user' ? parseShellUserMessage(rawText) : undefined
+          if (shellResult !== undefined) {
+            if (immediateShellMessages.delete(event.data.id)) break
+            appendShellCard(shellResult.shell, shellResult.command, shellResult)
+            break
+          }
+          const text = displayText(rawText)
           if (text === '') break
           // Idle submissions are painted before steer() so the input feels
           // immediate. Their durable event confirms that existing component.
@@ -906,7 +986,20 @@ export class Tui extends Service {
         case 'step/start':
           assistantStream.start(showReasoning)
           break
+        case 'llm/retry':
+          if (live) {
+            activeRetry = retryActivity(event.data)
+            refreshActivity()
+          }
+          break
+        case 'llm/retry-started':
+          if (live) {
+            activeRetry = undefined
+            refreshActivity()
+          }
+          break
         case 'assistant/chunk':
+          activeRetry = undefined
           assistantStream.update(event.data.chunk)
           break
         case 'assistant/message':
@@ -917,6 +1010,7 @@ export class Tui extends Service {
           }
           break
         case 'step/end':
+          activeRetry = undefined
           assistantStream.end()
           break
         case 'tool/call': {
@@ -1073,11 +1167,13 @@ export class Tui extends Service {
           // Detach the live streaming slot so straggler chunks that arrive
           // after an abort cannot keep appending to the interrupted step;
           // its rendered partial content stays in the transcript.
+          activeRetry = undefined
           assistantStream.end()
           const reason = event.data.reason
           if (reason.kind === 'error') {
             const text = t('noticeTurnFailed', {
               code: displayErrorCode(reason.error.code),
+              attempt: requestAttemptForTurn(agent?.session.events ?? [event], event.data.turn),
               error: reason.error.message,
             })
             chat.addChild(new ErrorMessageComponent(
@@ -1112,6 +1208,7 @@ export class Tui extends Service {
       chat.followLatest = anchor === 'bottom'
       chat.lineOffset = 0
       immediateUserMessages.clear()
+      immediateShellMessages.clear()
       chat.clear()
       if (header !== undefined) chat.addChild(header)
       chat.addChild(new TranscriptFoldNoticeComponent(() => transcriptStart, palette))
@@ -1317,6 +1414,7 @@ export class Tui extends Service {
             model,
           )
           const screen = new ContextUsageScreen(snapshot, palette, t, terminal.rows)
+          composerMounted = false
           ui.clear()
           ui.addChild(screen)
           ui.setFocus(screen)
@@ -3023,6 +3121,65 @@ export class Tui extends Service {
       ui.requestRender()
     }
 
+    const activeShellControllers = new Set<AbortController>()
+    ctx.effect(() => () => {
+      for (const controller of activeShellControllers) controller.abort()
+      activeShellControllers.clear()
+    }, 'tui: abort active user shell commands')
+
+    const runShellCommand = async (target: Agent, command: string): Promise<void> => {
+      const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+      const { card, wrapper } = appendShellCard(shell, command)
+      ui.requestRender()
+      const controller = new AbortController()
+      activeShellControllers.add(controller)
+      let result: ShellCommandResult
+      try {
+        const spec = ctx.shell.resolve({
+          command,
+          workdir: target.session.header.cwd,
+          stdoutMaxBytes: 64 * 1024,
+          signal: controller.signal,
+        })
+        result = shellCommandResult(shell, command, await ctx.shell.run(spec))
+      } catch (error: unknown) {
+        result = shellInfrastructureFailure(shell, command, error)
+      } finally {
+        activeShellControllers.delete(controller)
+      }
+
+      card.updateDispatch(
+        [{ type: 'text', text: renderShellResultText(result) }],
+        shellResultFailed(result),
+      )
+      ui.requestRender()
+
+      const message = createUserMessage({
+        content: [{ type: 'text', text: serializeShellUserMessage(result) }],
+        source: { kind: 'user' },
+      })
+      if (agent === target) immediateShellMessages.set(message.id, wrapper)
+      try {
+        recordActivePreset(target)
+        target.followup(message)
+        if (agent === target) {
+          pendingInputPanel.sync([...target.inbox.nextStep, ...target.inbox.nextTurn])
+          refreshPendingInput()
+        }
+        const sessionTitle = ctx.get('sessionTitle')
+        if (sessionTitle !== undefined && foldSessionTitle(target.session.events) === undefined) {
+          void sessionTitle.refresh(target.session).catch(() => undefined)
+        }
+      } catch (error: unknown) {
+        immediateShellMessages.delete(message.id)
+        card.updateDispatch([{
+          type: 'text',
+          text: `${renderShellResultText(result)}\n\nAgent delivery failed: ${errorChain(error)}`,
+        }], true)
+        ui.requestRender()
+      }
+    }
+
     editor.onSubmit = (text: string): void => {
       const current = agent
       if (current === undefined) return
@@ -3038,6 +3195,18 @@ export class Tui extends Service {
       const restoreSubmission = (): void => {
         if (!ownsEditor() || editor.getText() !== '' || !imagePasteDraft.restore(submission)) return
         editor.setText(text)
+      }
+
+      if (trimmed.startsWith('!')) {
+        const command = parseBangShellCommand(text)
+        if (command === undefined) return
+        if (submission.images.length > 0) {
+          restoreSubmission()
+          appendNotice(t('noticeImageCommandUnsupported', { name: '!' }), 'warning')
+          return
+        }
+        void runShellCommand(current, command)
+        return
       }
 
       if (trimmed.startsWith('/')) {
@@ -3167,6 +3336,11 @@ export class Tui extends Service {
     }
 
     const offKeys = ui.addInputListener((data) => {
+      restoreComposerFocus(
+        ui,
+        editor,
+        composerMounted && inlineQuestionDepth === 0 && !subagentPanel.isExpanded(),
+      )
       const viewingBackgroundTask = backgroundJobId !== undefined
         || (navigationOwner !== undefined && agent !== navigationOwner)
       if (subagentPanel.isExpanded()) {
@@ -3547,7 +3721,7 @@ export class Tui extends Service {
             scope: scopeOf(current.ctx),
           })
           if (revision !== skillRefreshRevision) return
-          syncSkillCommands(commandEntries, snapshot.skills, t('skillArgumentHint'))
+          syncSkillCommands(commandEntries, snapshot.skills)
           installAutocomplete()
         } catch {
           // Keep the current skill command list if the snapshot fails.
@@ -3587,27 +3761,11 @@ export class Tui extends Service {
             const bridge = ctx.get('wechat') as WechatBridge | undefined
             if (bridge?.askWithFallback !== undefined) {
               return await bridge.askWithFallback(request, async (r) => ({
-                answers: await runInlineQuestionFlow(
-                  ui,
-                  askSlot,
-                  palette,
-                  t,
-                  r.questions,
-                  r.signal,
-                  () => ui.setFocus(editor),
-                ),
+                answers: await askInline(r.questions, r.signal),
               }))
             }
             return {
-              answers: await runInlineQuestionFlow(
-                ui,
-                askSlot,
-                palette,
-                t,
-                request.questions,
-                request.signal,
-                () => ui.setFocus(editor),
-              ),
+              answers: await askInline(request.questions, request.signal),
             }
           } finally {
             orcaStatus.signal({ kind: 'attention-cleared' })
