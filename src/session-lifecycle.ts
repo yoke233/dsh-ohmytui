@@ -48,6 +48,35 @@ export function sessionSubagent(event: SessionEvent): SessionSubagent | undefine
   }
 }
 
+interface SubagentDescriptorCursor {
+  nextIndex: number
+  descriptor?: SessionSubagent
+}
+
+const subagentDescriptorCursors = new WeakMap<Session, SubagentDescriptorCursor>()
+
+/** Scan each live child session's append-only suffix once instead of once per event from every agent. */
+function liveSubagentDescriptor(session: Session): SessionSubagent | undefined {
+  const events = session.events
+  const suffixStart = session.header.seedLength ?? 0
+  let cursor = subagentDescriptorCursors.get(session)
+  if (cursor === undefined || cursor.nextIndex < suffixStart || cursor.nextIndex > events.length) {
+    cursor = { nextIndex: suffixStart }
+    subagentDescriptorCursors.set(session, cursor)
+  }
+  if (cursor.descriptor !== undefined) return cursor.descriptor
+
+  for (let index = cursor.nextIndex; index < events.length; index++) {
+    const descriptor = sessionSubagent(events[index]!)
+    if (descriptor === undefined) continue
+    cursor.descriptor = descriptor
+    cursor.nextIndex = index + 1
+    return descriptor
+  }
+  cursor.nextIndex = events.length
+  return undefined
+}
+
 /** Project direct, currently live child agents for the main-screen navigator. */
 export function liveChildSubagents(agents: readonly Agent[], parentId: SessionId): SessionSubagent[] {
   return agents
@@ -56,8 +85,7 @@ export function liveChildSubagents(agents: readonly Agent[], parentId: SessionId
     .sort((left, right) => left.session.header.createdAt - right.session.header.createdAt
       || String(left.id).localeCompare(String(right.id)))
     .map(candidate => {
-      const ownEvents = candidate.session.events.slice(candidate.session.header.seedLength)
-      const descriptor = ownEvents.map(sessionSubagent).find(value => value !== undefined)
+      const descriptor = liveSubagentDescriptor(candidate.session)
       const provider = descriptor?.provider === undefined || descriptor.provider === 'subagent'
         ? candidate.options.provider ?? 'subagent'
         : descriptor.provider

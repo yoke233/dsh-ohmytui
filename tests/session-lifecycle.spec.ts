@@ -104,6 +104,52 @@ describe('session lifecycle', () => {
     ])
   })
 
+  it('scans only newly appended events when refreshing live subagents', () => {
+    const parentId = SessionId('parent')
+    const childId = SessionId('busy-child')
+    const history = Array.from({ length: 5_000 }, (_, index) => ({
+      type: 'session/title',
+      data: { title: `event-${index}` },
+    })) as SessionEvent[]
+    let indexedReads = 0
+    const events = new Proxy(history, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/u.test(property)) indexedReads++
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const session = {
+      header: { id: childId, parentSession: parentId, origin: 'subagent', createdAt: 1, seedLength: 0 },
+      events,
+    }
+    const agent = {
+      id: childId,
+      status: 'running',
+      options: { provider: 'task' },
+      session,
+    }
+
+    assert.deepEqual(liveChildSubagents([agent] as never, parentId), [
+      { id: 'busy-child', provider: 'task', mode: 'one-shot', status: 'running' },
+    ])
+    assert.equal(indexedReads, history.length)
+
+    indexedReads = 0
+    agent.status = 'idle'
+    liveChildSubagents([agent] as never, parentId)
+    assert.equal(indexedReads, 0)
+
+    history.push({
+      type: 'subagent/descriptor',
+      data: { label: 'busy', provider: 'research', mode: 'continuable' },
+    } as SessionEvent)
+    indexedReads = 0
+    assert.deepEqual(liveChildSubagents([agent] as never, parentId), [
+      { id: 'busy-child', label: 'busy', provider: 'research', mode: 'continuable', status: 'idle' },
+    ])
+    assert.equal(indexedReads, 1)
+  })
+
   it('does not append when the creation header already records the preset', () => {
     const session = blankSession('header-preset', 'minimal')
     recordConversationPreset(session, 'minimal')

@@ -3889,11 +3889,13 @@ export class Tui extends Service {
         })
       }
       offEvent = ctx.on('session/event', (session, event) => {
-        refreshSubagentPanel(liveAgent)
+        if (sessionSubagent(event) !== undefined && session.header.parentSession === liveAgent.id) {
+          refreshSubagentPanel(liveAgent)
+        }
         handleSessionEvent(liveAgent.session.id, session, event)
       })
       offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => {
-        refreshSubagentPanel(liveAgent)
+        if (candidate.session.header.parentSession === liveAgent.id) refreshSubagentPanel(liveAgent)
         handleAgentStatus(liveAgent.id, candidate, status)
       })
       subscribeInbox(liveAgent)
@@ -3959,11 +3961,13 @@ export class Tui extends Service {
           () => selectionRef.current,
         )
         offEvent = ctx.on('session/event', (session, event) => {
-          refreshSubagentPanel(next)
+          if (sessionSubagent(event) !== undefined && session.header.parentSession === next.id) {
+            refreshSubagentPanel(next)
+          }
           handleSessionEvent(next.session.id, session, event)
         })
         offStatus = ctx.on('agent/status', ({ agent: candidate, status }) => {
-          refreshSubagentPanel(next)
+          if (candidate.session.header.parentSession === next.id) refreshSubagentPanel(next)
           handleAgentStatus(next.id, candidate, status)
         })
         subscribeInbox(next)

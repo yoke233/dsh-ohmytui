@@ -54,7 +54,7 @@ export async function run(tui) {
   await tui.waitForScreen(/agents ● 0 running ○ 1 idle.*↓ select/, { timeoutMs: 20_000, label: 'compact subagent statuses' })
 
   tui.key('\x1b[B')
-  await tui.waitForScreen(/Background tasks[\s\S]*← Main agent[\s\S]*Subagents[\s\S]*research · continuable · idle/, {
+  await tui.waitForScreen(/Background tasks[\s\S]*← (?:Main agent|Main)[\s\S]*Subagents[\s\S]*research · continuable · idle/, {
     timeoutMs: 10_000,
     label: 'expanded subagent list',
   })
@@ -62,7 +62,7 @@ export async function run(tui) {
   tui.key('\x1b[D')
   await tui.waitForScreen(/agents ● 0 running ○ 1 idle.*↓ select/, { timeoutMs: 10_000, label: 'returned main-agent view' })
   const returnedScreen = await tui.screenText()
-  if (returnedScreen.includes('← Main agent')) throw new Error('Subagent list remained expanded after Left')
+  if (/← (?:Main agent|Main)/u.test(returnedScreen)) throw new Error('Subagent list remained expanded after Left')
   const snapshot = await tui.snapshot('subagent-navigation')
   const pidAfter = tui.pid()
   if (pidBefore !== pidAfter) throw new Error(`DSH PID changed: ${pidBefore} -> ${pidAfter}`)

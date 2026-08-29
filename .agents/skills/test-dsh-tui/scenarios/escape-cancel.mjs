@@ -61,11 +61,27 @@ export async function run(tui) {
     return screen.includes('ESCAPE_STEER_ONE') && screen.includes('ESCAPE_STEER_TWO') && !screen.includes('Steering:')
   }, 5_000, 'Escape recalled queued steers into editor')
 
+  rmSync(requestStarted, { force: true })
+  rmSync(requestAborted, { force: true })
+  tui.key('\x15')
+  tui.submit('TURN_AFTER_ESCAPE_CANCEL')
+  await tui.waitFor(() => existsSync(requestStarted), 15_000, 'new turn after Escape cancellation')
+  tui.key('\x1b')
+  await tui.waitFor(() => existsSync(requestAborted), 15_000, 'second model request aborted by Escape')
+
   const pidAfter = tui.pid()
   const abortedPid = Number((await import('node:fs')).readFileSync(requestAborted, 'utf8'))
   if (pidBefore !== pidAfter || pidBefore !== abortedPid) {
     throw new Error(`DSH PID changed: ${pidBefore}, ${abortedPid}, ${pidAfter}`)
   }
   const settled = await tui.snapshot('escape-cancel-settled')
-  return { escapeCancelledRunningTurn: true, queuedSteersRecalled: true, processStayedLive: true, pidBefore, pidAfter, screenshots: { settled } }
+  return {
+    escapeCancelledRunningTurn: true,
+    queuedSteersRecalled: true,
+    postCancelTurnStarted: true,
+    processStayedLive: true,
+    pidBefore,
+    pidAfter,
+    screenshots: { settled },
+  }
 }
