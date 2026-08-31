@@ -50,7 +50,7 @@
 
 - Node.js `^22.19.0` 或 `>=24.0.0`
 - pnpm 11（仓库锁定 `11.7.0`）
-- dsh `0.1.1-rc.2`
+- dsh `0.1.2-alpha.2`
 - 推荐 truecolor 终端；Nerd Font 用于完整图标显示
 
 ### 1. 安装（推荐：omdsh）
@@ -58,7 +58,7 @@
 安装官方 dsh、pnpm 与 `omdsh`（全局安装后命令即在 PATH 中）：
 
 ```sh
-npm install --global pnpm@11.7.0 @deepseek-ai/dsh@0.1.1-rc.2
+npm install --global pnpm@11.7.0 @deepseek-ai/dsh@0.1.2-alpha.2
 npm install --global @yoke233/omdsh
 ```
 
@@ -68,7 +68,7 @@ npm install --global @yoke233/omdsh
 <summary>手工安装到 profile（不经 omdsh）</summary>
 
 ```sh
-npx --yes @deepseek-ai/dsh@0.1.1-rc.2 plugin --profile tui add \
+npx --yes @deepseek-ai/dsh@0.1.2-alpha.2 plugin --profile tui add \
   https://github.com/yoke233/omdsh/releases/download/v0.6.0/yoke233-omdsh-0.6.0.tgz
 ```
 
@@ -148,7 +148,7 @@ dsh --profile tui --dump-config
 | `/model` | 选择 provider、model 和思考等级 |
 | `/new` · `/resume [id]` | 新建或恢复持久化会话 |
 | `/reload` | 重启插件运行时并续接当前会话（需经 `omdsh` 启动；回合运行中会要求先等待结束） |
-| `/mode [preset]` | 切换 `standard`、`minimal`、`code`、`cordis` 或本地 preset |
+| `/mode [preset]` | 切换官方 `ctx.agentPresets` roster 中的健康 preset（含本地安装项） |
 | `/permission [preset]` | 切换沙箱与审批策略 |
 | `/theme` · `/palette` | 切换主题并检查实际颜色角色 |
 | `/settings` | 打开可视化设置面板 |
@@ -179,7 +179,7 @@ dsh --profile tui --dump-config
 ```yaml
 - id: tui
   config:
-    mode: standard              # standard | minimal | code | cordis | 本地 preset id
+    mode: standard              # ctx.agentPresets roster 中的 preset id
     locale: zh-CN               # zh-CN | en
     defaultReasoningEffort: max
     theme:

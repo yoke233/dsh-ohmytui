@@ -1,6 +1,7 @@
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { Session, SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo'
 
 /** Events proving that a session contains model-facing conversation data. */
 const CONVERSATION_EVENT_TYPES: Readonly<Record<string, true>> = {
@@ -129,7 +130,7 @@ export function foldSessionView(events: readonly SessionEvent[]): SessionViewSta
  * this out of blank-session setup preserves the persistence backend's lazy
  * materialization contract: an abandoned session leaves no artifact.
  */
-export function recordConversationPreset(session: Session, preset: string): void {
-  if (resolveSessionPreset(session) === preset) return
+export function recordConversationPreset(session: Session, preset: string, recordedPreset: string | undefined): void {
+  if (recordedPreset === preset) return
   session.append('agent-preset/selected', { agentPreset: preset })
 }

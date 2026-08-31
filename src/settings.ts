@@ -1,9 +1,8 @@
 /** Shared persistent settings namespaces used by the TUI and title provider. */
 
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 
-export const TUI_SETTINGS_NAMESPACE = settingsNamespace('tui')
+export const TUI_SETTINGS_NAMESPACE = 'tui'
 
 export type ThemeModeSetting = 'dynamic' | 'selected'
 
@@ -49,7 +48,7 @@ export const TuiSettingsSchema: z<TuiSettings> = z.object({
   maxToolOutputLines: z.number().step(1).min(1).default(6),
 })
 
-export const SESSION_TITLE_SETTINGS_NAMESPACE = settingsNamespace('session-title')
+export const SESSION_TITLE_SETTINGS_NAMESPACE = 'session-title'
 
 export interface SessionTitleSettings {
   provider?: string

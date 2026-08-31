@@ -1,7 +1,7 @@
 /** Conversation-aware write gate and legacy session repair installed over the profile's JSONL backend. */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { hasConversationData } from './session-lifecycle.ts'
@@ -187,7 +187,7 @@ function sanitizeToolCallChunk(chunk: StreamChunk): StreamChunk {
     const id = nonEmptyString(chunk.id, `call-${chunk.index}`)
     const name = nonEmptyString(chunk.name, 'unknown')
     if (id === chunk.id && name === chunk.name) return chunk
-    return { ...chunk, id: CallId(id), name } as StreamChunk
+    return { ...chunk, id: ToolCallId(id), name } as StreamChunk
   }
 
   if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') {
@@ -197,7 +197,7 @@ function sanitizeToolCallChunk(chunk: StreamChunk): StreamChunk {
     if (id === block.id && name === block.name) return chunk
     return {
       ...chunk,
-      block: { ...block, id: CallId(id), name },
+      block: { ...block, id: ToolCallId(id), name },
     } as StreamChunk
   }
 

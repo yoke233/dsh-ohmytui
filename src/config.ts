@@ -8,9 +8,6 @@ import type { Locale } from './i18n.ts'
 import type { ThemeMode } from './theme.ts'
 import { THEME_DATA } from './theme-data.ts'
 
-/** Shipped working modes (backend compositions); locally installed presets use any other id. */
-export type UiMode = 'standard' | 'minimal' | 'code' | 'cordis'
-
 /** Theme and prompt-template settings. */
 export interface TuiThemeConfig {
   /** Apply the ANSI palette at all. */

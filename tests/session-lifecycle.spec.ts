@@ -18,7 +18,7 @@ describe('session lifecycle', () => {
     const session = blankSession('blank')
     assert.equal(hasConversationData(session.events), false)
 
-    recordConversationPreset(session, 'standard')
+    recordConversationPreset(session, 'standard', undefined)
     assert.equal(session.events.length, 1)
     assert.equal(session.events[0]?.type, 'agent-preset/selected')
     assert.equal(hasConversationData(session.events), false)
@@ -152,14 +152,14 @@ describe('session lifecycle', () => {
 
   it('does not append when the creation header already records the preset', () => {
     const session = blankSession('header-preset', 'minimal')
-    recordConversationPreset(session, 'minimal')
+    recordConversationPreset(session, 'minimal', 'minimal')
     assert.equal(session.events.length, 0)
   })
 
   it('records one latest selection when a blank session changes preset', () => {
     const session = blankSession('switched-preset', 'standard')
-    recordConversationPreset(session, 'minimal')
-    recordConversationPreset(session, 'minimal')
+    recordConversationPreset(session, 'minimal', 'standard')
+    recordConversationPreset(session, 'minimal', 'minimal')
     assert.equal(session.events.length, 1)
     assert.deepEqual(session.events[0]?.data, { agentPreset: 'minimal' })
   })

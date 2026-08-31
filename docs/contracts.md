@@ -1,6 +1,6 @@
 # @yoke233/omdsh 合约速查表（contracts.md）
 
-> dsh 0.1.1-rc.2 唯一真相源。类型文本逐字引自 npm 安装包
+> dsh 0.1.2-alpha.2 唯一真相源。类型文本逐字引自 npm 安装包
 > `@deepseek-ai/*/lib/types/*.d.ts`。本文件是 TUI bundle 消费 harness 服务的地图；
 > 上游接口变更时先更新本表再改代码。
 > 包根：`node_modules/@deepseek-ai`（本仓库 pnpm 安装）与全局 dsh 安装目录中的 `node_modules/@deepseek-ai`
@@ -21,10 +21,10 @@ export interface SessionEventMap {
   'user/message': UserMessage;           // 直接人类提示 / 注入上下文 / goal 续轮；data.source 区分
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk };
   'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage; interrupted?: true };
-  'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string };
+  'tool/call': { turn: number; step: number; callId: ToolCallId; name: string; arguments: string };
   'tool/result': { turn: number; step: number; message: ToolResultMessage; error?: { name: string; code: string }; meta?: JsonValue };
-  'todo/write': { todos: TodoItem[] };   // 整表快照，后写覆盖；仅 UI 状态，不进派生历史
-  'tool/code-dispatch-start': CodeDispatchStartEventData; // REPL/Code Mode nested call starts
+  // dsh-tool-todo 合并 'todo/write'；整表快照，后写覆盖，仅 UI 状态，不进派生历史
+  'tool/code-dispatch-start': PtcDispatchStartEventData; // REPL/PTC nested call starts
   'tool/code-dispatch': CodeDispatchEventData;            // matching nested call settlement
   'request/header': { header: EpochHeader; reason: RequestHeaderReason };
   'request/context': RequestContext;
@@ -37,19 +37,19 @@ export interface SessionEventMap {
 
 `@deepseek-ai/dsh-llm-retry` 追加持久但默认不进入表层的 `llm/retry` 与 `llm/retry-started`。`llm/retry` 数据包含 `turn`、`step`、`provider`、从 1 开始的 `retry`、实际 `delayMs`、失败详情；normal 模式另含 `maxRetries`。提供方省略策略时默认 normal 模式：首次请求失败后最多重试 5 次（总计最多 6 次尝试），仅 `EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT`、`TRANSPORT` 可重试。局部退避为 500ms 起始、2 倍指数、10s 封顶，并施加 ±10% jitter；若提供方返回不超过 10s 的有效 Retry-After，则优先采用。
 
-rc8 已知新事件（log-only，TUI 默认忽略）：`team/member`、`team/message/delivered`、`team/message/queued`、`team/task`。
+已知团队事件（log-only，TUI 默认忽略）：`team/member`、`team/message/delivered`、`team/message/queued`、`team/task`。
 
 `@deepseek-ai/dsh-tools` 对上述两个 log-only 事件声明合并：
 
 ```ts
-interface CodeDispatchStartEventData {
-  rootCallId: CallId;
-  parentCallId: CallId;
-  subCallId: CallId;
+interface PtcDispatchStartEventData {
+  rootCallId: ToolCallId;
+  parentCallId: ToolCallId;
+  subCallId: ToolCallId;
   name: string;
   arguments: unknown;
 }
-interface CodeDispatchEventData extends CodeDispatchStartEventData {
+interface PtcDispatchEventData extends PtcDispatchStartEventData {
   isError: boolean;
   content: ContentBlock[];
 }
@@ -138,7 +138,7 @@ class SessionStore extends Service {
 | `session/event` | `(session: Session, event: SessionEvent) => void` | **追加后 fire-and-forget 馈送（TUI 渲染主通道）**；种子重放不发出 |
 | `session/flush` | `(session: Session) => Promise<void> \| void` | 并行耐久检查点 |
 
-### 1.7 TodoItem
+### 1.7 TodoItem（`@deepseek-ai/dsh-tool-todo`）
 
 ```ts
 export interface TodoItem {
@@ -250,16 +250,16 @@ export interface AskUserQuestionItem {
 export interface AskUserQuestionAnswerItem { id: string; selected: string[]; custom?: string; }
 export interface AskUserQuestionAnswer { answers: AskUserQuestionAnswerItem[]; }
 export interface AskUserQuestionRequest { questions: AskUserQuestionItem[]; agent?: Agent; signal?: AbortSignal; }
-export interface UserQuestionProvider { ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>; }
-
 class UserQuestionService extends Service {   // ctx.userQuestions
-  registerProvider(provider: UserQuestionProvider): () => void;   // 单 provider
   ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;
   // 错误码：CALLER_NOT_LIVE / DELEGATED_CALLER
 }
+
+// UI answerer 监听 agent-scope waterfall：
+// 'user-questions/request'(request, next): Promise<AskUserQuestionAnswer>
 ```
 
-- 模型侧工具在 `@deepseek-ai/dsh-tool-ask-user`；TUI 注册唯一 UI provider，渲染对话框并返回答案。
+- 模型侧工具在 `@deepseek-ai/dsh-tool-ask-user`；TUI 监听 `user-questions/request` waterfall，渲染对话框并返回答案。
 
 ### 4.2 授权 — `@deepseek-ai/dsh-user-approval`
 
@@ -270,7 +270,7 @@ export type ApprovalPolicy = 'ask' | 'never';
 export interface ApprovalRequest {
   readonly agent: Agent;
   readonly toolName: string;
-  readonly callId?: CallId;
+  readonly callId?: ToolCallId;
   readonly reason?: string;
   readonly signal?: AbortSignal;
 }
@@ -335,8 +335,8 @@ TUI 消费的 log-only session 事件（`dsh-hook-protocol/lib/types/types.d.ts:
 export interface TextBlock { type: 'text'; text: string; }
 export interface ReasoningBlock { type: 'reasoning'; text: string; }
 export interface ImageBlock { type: 'image'; attachment: ImageAttachmentRef; }
-export interface ToolCallBlock { type: 'tool-call'; id: CallId; name: string; arguments: string; }
-export interface ToolResultBlock { type: 'tool-result'; toolCallId: CallId; content: ContentBlock[]; isError?: boolean; }
+export interface ToolCallBlock { type: 'tool-call'; id: ToolCallId; name: string; arguments: string; }
+export interface ToolResultBlock { type: 'tool-result'; toolCallId: ToolCallId; content: ContentBlock[]; isError?: boolean; }
 export type ContentBlock = ContentBlockMap[ContentBlockType];   // 按 type 判别
 ```
 
@@ -362,7 +362,7 @@ export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
   | { type: 'text-delta'; index: number; text: string }
   | { type: 'reasoning-delta'; index: number; text: string }
-  | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
+  | { type: 'tool-call-delta'; index: number; id: ToolCallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
   | { type: 'finish'; reason: FinishReason; replayState?: ReplayEnvelope };
@@ -421,6 +421,8 @@ class AttachmentStore extends Service { // ctx.attachments
 session-title(+llm)、user-questions、agent、agent-default-model、jobs、llm-retry、settings、
 credentials、llm-pi-ai、session-persistence-jsonl（root=`dshHomePath('sessions')`）、attachment-local、
 session-query-sqlite（path `:memory:`、openAt `never`）、session-projection、session-telemetry-otel、
+storage、storage-json（root=`dshHomePath('storages')`）、storage-domain（backend `json`）、
+session-projection-cache（writeEveryEvents `200`、writeIntervalMs `5000`）、
 subprocess、sandbox、sandbox-policy（mode `workspace-write`，workspaceRoot=process.cwd()）、
 bash-sandbox（win32 禁用）、pwsh-sandbox（仅 win32）、approval、permission、shell-env、
 tool-bash（win32 禁用）、tool-pwsh（仅 win32）、tool-pwsh-persistent（仅 win32）、tool-jobs、fs-observation-policy、tool-fs、
@@ -432,7 +434,8 @@ spill-local、spill-policy（maxInlineBytes 50000）、session-checkpoint-policy
 tool-todo、tool-goal、tool-ralph、tool-str-replace-editor、repeat-tool-reminder、web_search 系列。
 
 → TUI bundle 的 patch 只需**覆盖** `agent-loop`/`system-prompt`/`llm-deepseek`/`fs-sandbox`/`tools`
-行 + **插入** session-reference/storage 三件套/session-projection-cache/tmux-context/tui 行。
+行 + **插入** session-reference/tmux-context/tui 行。storage 三件套与 session-projection-cache
+由 0.1.2-alpha.2 的官方 base 提供，TUI 不得重复插入。
 
 可选的独立 `dsh-web-access` bundle 安装在 `tui` Profile 后层：禁用 base 的
 `web-search-deepseek` 与 `tool-web`，保留 `web` seam 并把 search/fetch provider 固定为
@@ -441,7 +444,7 @@ tool-todo、tool-goal、tool-ralph、tool-str-replace-editor、repeat-tool-remin
 
 ---
 
-## 6. 会话持久化/投影/查询（scout 汇总，rc.2 逐字）
+## 6. 会话持久化/投影/查询（0.1.2-alpha.2 合约）
 
 ### 6.1 SessionPersistence（`ctx.sessionPersistence`，抽象服务）
 
@@ -537,7 +540,7 @@ parseCommand(line: string): ParsedCommand | undefined;
 ```ts
 // SessionEvent：'goal/change' = 全量快照变更（kind:'goal/change', version:1, operation: create|edit|pause|resume|complete|block|clear, goal: GoalSnapshot, …）或 clear tombstone
 foldGoal(events): FoldedGoal;          // 严格重放；TUI 用 applyGoalProjection（投影宽松版）
-interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; }  // 真身在 dsh-session
+interface TodoItem { content: string; status: 'pending' | 'in_progress' | 'completed'; }  // 真身在 dsh-tool-todo
 interface GoalSnapshot extends GoalRef { objective; phase: 'active'|'paused'|'blocked'|'complete'; blockedReason?; maxGoalRounds }
 ```
 
@@ -666,7 +669,7 @@ interface Config {
 
 - `agent-default-model`：`{ provider: string (req), model: string (req) }`；settings 分节另有 `reasoningEffort?`
 - `agent-instructions`：`maxBytes` 必填；其余可选（projectRootMarkers 默认 ['.git']、candidates [AGENTS.md, CLAUDE.md]…）
-- `tools`：`{ mode?: 'native'|'code'|'both' (default native), maxParallelSubCalls?: number (default 10) }`
+- `tools`：`{ mode?: 'native'|'ptc'|'both' (default native), maxParallelSubCalls?: number (default 10) }`
 - `system-prompt`：`{ persona?, toolOrder?, includeHarnessIdentity?, includeRuntimeContext? }`
 - `fs-sandbox`：`{ cwd }`（workspace 根）
 - `approval`：`{ policy?: 'ask'|'never' }`（默认 `ask`；交互前端需注册 `approval/request` answerer）
@@ -683,7 +686,7 @@ interface Config {
 4. **状态**：`agent/status` 事件 → 编辑框边框/指示器；`agent.session.header.cwd` 为 workspace。
 5. **提交输入**：编辑框消息统一调用 `agent.steer(createUserMessage({ content, source: { kind: 'user' } }))`；剪贴板图片在草稿中只保留内存字节与 `[Image #N]` 标记，提交时先由 `ctx.attachments.saveImages` 持久化仍保留标记的图片，再把 durable image block 加入 `content`。idle 时立即在 transcript 乐观渲染普通用户消息并按 message id 等待正式事件确认，不显示 steer 待处理投影；running 时由最近的下一 step 领取，并将 `agent/inbox/inserted` 投影到 Steering 面板。正式 `user/message` 到达后，idle 乐观消息只确认去重，running 预览则按 message id 移除并进入 transcript；`discarded` 或未接纳 turn 结束时同步清理。Alt+Up 合并 `inbox.nextStep`/`nextTurn` 中可编辑的直接用户文本到当前草稿，并通过 `inbox.remove(message.id)` 逐条撤回原队列项。 运行中输入框非空时 Ctrl+C 只清空草稿；空输入框 Ctrl+C 或任意草稿状态的 Esc 在调用 `agent.cancel` 前，先将全部可编辑 Steering 消息按队列顺序合并回输入框并从 inbox 移除，避免取消时丢失或重复投递。
 6. **中断**：`agent.cancel({ kind: 'user' })`。
-7. **提问**：`ctx.userQuestions.registerProvider(provider)`；对话框完成后 resolve `AskUserQuestionAnswer`。
+7. **提问**：监听 agent-scope `user-questions/request` waterfall；对话框完成后返回 `AskUserQuestionAnswer`，不认领的请求调用 `next()`。
 8. **授权**：监听 waterfall `approval/request`；只认领当前前台 agent，弹框返回 `allowed-once`/`rejected`，中止返回 `cancelled`，其他 agent 调用 `next()`。
 9. **命令**：`ctx.commands.execute(agent, line, images, signal)`；普通命令传 `[]`，带图片标记的草稿仅在命令声明 `input.images` 时传入 base64 wire batch，否则前端拒绝提交并保留草稿。`/help` 列表用 `ctx.commands.list(agent)`。
 10. **模型选择**：`installModelSelection(agent.ctx, selectionRef)` + `agentDefaultModel.currentSelection()/saveSelection()`。

@@ -27,7 +27,7 @@ import { PromptEditor } from './components/prompt-editor.ts'
 import type { Agent, AgentHandle, AgentStatus, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { CombinedAutocompleteProvider, type AutocompleteItem, type SlashCommand } from '@earendil-works/pi-tui'
-import { createUserMessage, errorChain, type CallId, type ContentBlock, type LlmConfigurableProvider, type LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain, type ToolCallId, type ContentBlock, type LlmConfigurableProvider, type LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { SessionId, type Session, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
@@ -47,8 +47,9 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-reference'
-import { settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-tool-todo'
 import { PERMISSION_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-goal'
@@ -60,9 +61,9 @@ import type {} from '@deepseek-ai/dsh-shell'
 // by the dsh-hooks-claude-code bridge (via dsh-hook-protocol).
 import type {} from '@deepseek-ai/dsh-hook-protocol'
 import type { ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
-// Declaration merges: `ctx.agentPresets` and the `agent-preset/selected`
-// session event, plus the runtime preset resolver for resumed sessions.
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+// Declaration merges: `ctx.agentPresets`, its `agentPreset` projection, and
+// the `agent-preset/selected` session event.
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import {
   DEFAULT_LEFT_PROMPT,
   DEFAULT_RIGHT_PROMPT,
@@ -70,7 +71,6 @@ import {
   resolveTuiConfig,
   type Config,
   type ResolvedTuiConfig,
-  type UiMode,
 } from './config.ts'
 import type { TuiStartup } from './startup.ts'
 import {
@@ -221,26 +221,19 @@ const RESUME_TITLES_TIMEOUT_MS = 5_000
 /** Context fallback while exact model metadata is unavailable. */
 const DEFAULT_CONTEXT_WINDOW = 1_000_000
 
-/** UI modes map 1:1 to the shipped dsh agent presets (backend compositions). */
-const MODE_PRESETS = { standard: 'standard', minimal: 'minimal', code: 'code', cordis: 'cordis' } as const
-type UiModeKey = keyof typeof MODE_PRESETS
-
-/** Bare `/mode` cycles through the shipped presets in this order. */
-const MODE_ORDER: readonly UiModeKey[] = ['standard', 'minimal', 'code', 'cordis']
-
-/** i18n key for each mode's localized label. */
-const MODE_LABEL_KEYS: Record<UiModeKey, MessageKey> = {
+/** Optional localized labels for official presets; roster ids remain authoritative. */
+const MODE_LABEL_KEYS: Readonly<Record<string, MessageKey>> = {
   standard: 'modeStandard',
   minimal: 'modeMinimal',
-  code: 'modeCode',
+  ptc: 'modeCode',
   cordis: 'modeCordis',
 }
 
 
 
-/** Restore a session's recorded backend preset, falling back for blank sessions. */
-function modeForSession(session: Session, fallback: string): string {
-  return resolveSessionPreset(session) ?? fallback
+/** Restore a session's projected backend preset, falling back for blank sessions. */
+function modeForSession(recorded: string | null | undefined, fallback: string): string {
+  return recorded ?? fallback
 }
 
 /** The localized label of a preset id, preferring the roster's own name. */
@@ -251,7 +244,8 @@ function modeLabel(
 ): string {
   const rosterName = names.get(mode)
   if (rosterName !== undefined) return rosterName
-  return mode in MODE_LABEL_KEYS ? t(MODE_LABEL_KEYS[mode as UiModeKey]) : mode
+  const labelKey = MODE_LABEL_KEYS[mode]
+  return labelKey === undefined ? mode : t(labelKey)
 }
 
 /** Filter preset argument choices while preserving their descriptions. */
@@ -304,7 +298,7 @@ async function readGitBranch(cwd: string): Promise<string | undefined> {
 
 /** The terminal mode's plugin entry: mounts the whole UI in its constructor. */
 export class Tui extends Service {
-  static inject = ['tuiStartup', 'agents', 'tuiPrompt', 'commands', 'attachments', 'jobs', 'tokenMeter', 'llm', 'shell', 'userQuestions', 'approval', 'sessionQuery', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
+  static inject = ['tuiStartup', 'agents', 'tuiPrompt', 'commands', 'attachments', 'jobs', 'tokenMeter', 'llm', 'shell', 'userQuestions', 'approval', 'sessionQuery', 'sessionProjections', 'agentDefaultModel', 'skills', 'sessionReferenceResolver', 'agentPresets', 'permissionPresets', 'settings', 'sessionTitle']
   static Config = TuiConfigSchema
 
   /** Mount 后由 TUI 赋值：读取当前前台 agent。 */
@@ -380,7 +374,7 @@ export class Tui extends Service {
         : []
     )
     const readConfiguredProvider = (entry: LlmConfigurableProvider): ConfiguredProviderProfile | undefined => {
-      const value = readPath(settings?.get(settingsNamespace(entry.settingsNs)), entry.settingsPath)
+      const value = readPath(settings?.get(entry.settingsNs), entry.settingsPath)
       const record = asRecord(value)
       if (record === undefined) return undefined
       const profile: ConfiguredProviderProfile = {}
@@ -665,7 +659,7 @@ export class Tui extends Service {
     const appendNotice = (_text: string, _kind: 'info' | 'warning' | 'error'): void => {}
 
     const warnIfFullAccess = (target: Agent): void => {
-      if (ctx.permissionPresets.current(target.session.events) === FULL_ACCESS_REGISTRY_NAME) {
+      if (ctx.permissionPresets.current(target.session) === FULL_ACCESS_REGISTRY_NAME) {
         appendNotice(t('noticeFullAccessWarning'), 'warning')
       }
     }
@@ -821,7 +815,7 @@ export class Tui extends Service {
         contextUsageCache = {
           measuredAt: now,
           totalTokens,
-          permission: ctx.permissionPresets.current(current.session.events),
+          permission: ctx.permissionPresets.current(current.session),
         }
       }
       const contextText = `ctx ${formatContextTokens(contextUsageCache.totalTokens)}/${formatContextTokens(contextWindow)}`
@@ -889,9 +883,9 @@ export class Tui extends Service {
 
     // --- transcript ---------------------------------------------------------
     const assistantStream = new AssistantStreamController(chat, palette, mdTheme)
-    const toolCards = new Map<CallId, ToolCardComponent>()
-    const toolArguments = new Map<CallId, unknown>()
-    const toolNames = new Map<CallId, string>()
+    const toolCards = new Map<ToolCallId, ToolCardComponent>()
+    const toolArguments = new Map<ToolCallId, unknown>()
+    const toolNames = new Map<ToolCallId, string>()
     const presentCall = (name: string, args: unknown): ToolCallView | undefined => {
       try {
         return (ctx.tools.get(name, agent) ?? ctx.tools.get(name))?.presentCall?.(args)
@@ -1336,9 +1330,10 @@ export class Tui extends Service {
 
     const recordActivePreset = (target: Agent): void => {
       const mounted = ctx.agentPresets?.composedPreset(target.ctx)
-      const preset = mounted ?? resolveSessionPreset(target.session)
+      const recorded = ctx.sessionProjections.stateOf(target.session, 'agentPreset') ?? undefined
+      const preset = mounted ?? recorded
         ?? (target.id === agent?.id ? uiMode : undefined)
-      if (preset !== undefined) recordConversationPreset(target.session, preset)
+      if (preset !== undefined) recordConversationPreset(target.session, preset, recorded)
     }
 
     const toggleReasoning = (): void => {
@@ -1677,11 +1672,12 @@ export class Tui extends Service {
           return
         }
         const roster = (await presets.list()).filter(preset => preset.broken === undefined)
-        // Cycle order: the roster's own order (shipped first, then any number
-        // of locally installed presets), deduplicated against the shipped set.
-        const known = roster.length > 0
-          ? [...new Set([...MODE_ORDER, ...roster.map(preset => preset.id)])]
-          : [...MODE_ORDER]
+        // The official roster owns both the accepted ids and cycle order.
+        const known = roster.map(preset => preset.id)
+        if (known.length === 0) {
+          appendNotice(t('noticeModeUnavailable'), 'warning')
+          return
+        }
         const arg = line.slice('/mode'.length).trim()
         if (arg !== '' && !known.includes(arg)) {
           appendNotice(t('noticeModeUnknown', { name: arg }), 'warning')
@@ -1903,7 +1899,7 @@ export class Tui extends Service {
             return roles.length === 0 ? t('settingsThemeCustomNone') : roles.join(', ')
           }
           const buildSettingsTabs = (): SettingsTab[] => {
-            const agentLoopSettings = settings.get(settingsNamespace('agent-loop')) as {
+            const agentLoopSettings = settings.get('agent-loop') as {
               maxParallelToolCalls?: number
             } | undefined
             const maxParallelToolCalls = agentLoopSettings?.maxParallelToolCalls ?? 10
@@ -1915,7 +1911,7 @@ export class Tui extends Service {
             const titleProvider = titleSettings?.provider ?? current.options.provider ?? 'auto'
             const titleModel = titleSettings?.model ?? current.options.model ?? 'auto'
             const defaultPermission = displayPermissionName(ctx.permissionPresets.defaultPreset)
-            const defaultPreset = (settings.get(settingsNamespace('agent-presets')) as {
+            const defaultPreset = (settings.get('agent-presets') as {
               default?: string
             } | undefined)?.default
             const defaultMode = defaultPreset ?? ctx.agentPresets?.defaultId ?? resolved.mode
@@ -2114,7 +2110,7 @@ export class Tui extends Service {
 
 
           interface ProviderSettingsTarget {
-            ns: SettingsNamespace
+            ns: string
             path: string[]
             entry: LlmConfigurableProvider
           }
@@ -2129,7 +2125,7 @@ export class Tui extends Service {
             const path = editingId === undefined
               ? [...entry.settingsPath.slice(0, -1), providerId]
               : [...entry.settingsPath]
-            return { ns: settingsNamespace(entry.settingsNs), path, entry }
+            return { ns: entry.settingsNs, path, entry }
           }
 
           const providerDiscoveryNamespace = (providerId: string | undefined): string | undefined => {
@@ -2383,7 +2379,7 @@ export class Tui extends Service {
                     return
                   }
                   const presetsList = (await presets.list()).filter(preset => preset.broken === undefined)
-                  const defaultMode = (settings.get(settingsNamespace('agent-presets')) as {
+                  const defaultMode = (settings.get('agent-presets') as {
                     default?: string
                   } | undefined)?.default ?? presets.defaultId
                   showItems(
@@ -2397,7 +2393,7 @@ export class Tui extends Service {
                     defaultMode,
                   )
                 } else if (item.value === 'max-parallel-tool-calls') {
-                  const current = (settings.get(settingsNamespace('agent-loop')) as {
+                  const current = (settings.get('agent-loop') as {
                     maxParallelToolCalls?: number
                   } | undefined)?.maxParallelToolCalls ?? 10
                   showItems(
@@ -2694,7 +2690,7 @@ export class Tui extends Service {
               }
 
               if (selectedView === 'default-mode') {
-                await settings.update(settingsNamespace('agent-presets'), { default: item.value })
+                await settings.update('agent-presets', { default: item.value })
                 appendNotice(t('noticeDefaultModeSet', { mode: modeLabel(t, item.value, presetNames) }), 'info')
                 if (selectedVersion === viewVersion && view === selectedView) showMain()
                 return
@@ -2702,7 +2698,7 @@ export class Tui extends Service {
 
               if (selectedView === 'max-parallel-tool-calls') {
                 const next = Number(item.value)
-                await settings.update(settingsNamespace('agent-loop'), { maxParallelToolCalls: next })
+                await settings.update('agent-loop', { maxParallelToolCalls: next })
                 appendNotice(t('noticeSettingsSaved'), 'info')
                 if (selectedVersion === viewVersion && view === selectedView) showMain()
                 return
@@ -3490,7 +3486,7 @@ export class Tui extends Service {
 
     const mount = (liveAgent: Agent): void => {
       if (mounted) return
-      uiMode = modeForSession(liveAgent.session, resolveDefaultMode())
+      uiMode = modeForSession(ctx.sessionProjections.stateOf(liveAgent.session, 'agentPreset'), resolveDefaultMode())
       mounted = true
       agent = liveAgent
       // 让微信桥跟随 TUI 当前会话；/resume、/new 等切换也走 activateAgent。
@@ -3556,12 +3552,6 @@ export class Tui extends Service {
       // scans the workspace rooted at the session cwd).
       const workspace = liveAgent.session.header.cwd ?? process.cwd()
       refreshGitBranch(workspace)
-      const modeOptions: AutocompleteItem[] = [
-        { value: 'standard', label: `standard — ${t('modeStandard')}`, description: t('modeStandardHint') },
-        { value: 'minimal', label: `minimal — ${t('modeMinimal')}`, description: t('modeMinimalHint') },
-        { value: 'code', label: `code — ${t('modeCode')}`, description: t('modeCodeHint') },
-        { value: 'cordis', label: `cordis — ${t('modeCordis')}`, description: t('modeCordisHint') },
-      ]
       const themeOptions: AutocompleteItem[] = BUILTIN_THEMES.map(theme => ({
         value: theme.id,
         label: `${theme.id} — ${theme.label}`,
@@ -3617,25 +3607,22 @@ export class Tui extends Service {
         {
           name: 'mode',
           description: t('cmdMode'),
-          argumentHint: '<standard|minimal|code|cordis|user preset>',
+          argumentHint: '<preset>',
           getArgumentCompletions: async (prefix) => {
             const roster = ctx.agentPresets
-            let extra: AutocompleteItem[] = []
-            if (roster !== undefined) {
-              try {
-                const shipped = new Set(modeOptions.map(option => option.value))
-                extra = (await roster.list())
-                  .filter(preset => preset.broken === undefined && !shipped.has(preset.id))
-                  .map(preset => ({
-                    value: preset.id,
-                    label: `${preset.id} — ${preset.name ?? preset.id}`,
-                    description: preset.description,
-                  }))
-              } catch {
-                // Roster unreadable: shipped set only.
-              }
+            if (roster === undefined) return null
+            try {
+              const options = (await roster.list())
+                .filter(preset => preset.broken === undefined)
+                .map(preset => ({
+                  value: preset.id,
+                  label: `${preset.id} — ${preset.name ?? modeLabel(t, preset.id, presetNames)}`,
+                  description: preset.description,
+                }))
+              return filterCommandOptions(options, prefix)
+            } catch {
+              return null
             }
-            return filterCommandOptions([...modeOptions, ...extra], prefix)
           },
         },
         {
@@ -3743,8 +3730,8 @@ export class Tui extends Service {
         ui.requestRender()
       }
 
-      const offQuestions = ctx.userQuestions.registerProvider({
-        ask: async (request) => {
+      const offQuestions = ctx.on('user-questions/request', async (request, next) => {
+          if (request.agent !== undefined && request.agent.id !== agent?.id) return next()
           orcaStatus.signal({
             kind: 'questions',
             questions: request.questions.map(item => ({
@@ -3770,7 +3757,6 @@ export class Tui extends Service {
           } finally {
             orcaStatus.signal({ kind: 'attention-cleared' })
           }
-        },
       })
 
       // The approval service fails closed when no answerer claims a request.
@@ -3780,7 +3766,7 @@ export class Tui extends Service {
        * request carries only `callId`, but Orca's row has to say what is being
        * approved, so the summary is read back off the durable log.
        */
-      const pendingToolInput = (target: Agent, callId: CallId | undefined): string | undefined => {
+      const pendingToolInput = (target: Agent, callId: ToolCallId | undefined): string | undefined => {
         if (callId === undefined) return undefined
         const events = target.session.events
         for (let index = events.length - 1; index >= 0; index--) {
@@ -3915,7 +3901,7 @@ export class Tui extends Service {
       async function composeAgentPreset(target: Agent): Promise<void> {
         const presets = ctx.agentPresets
         if (presets === undefined || presets.composedPreset(target.ctx) !== undefined) return
-        const recorded = resolveSessionPreset(target.session)
+        const recorded = ctx.sessionProjections.stateOf(target.session, 'agentPreset') ?? undefined
         if (recorded === undefined && hasConversationData(target.session.events)) return
         const wanted = recorded ?? uiMode
         try {
@@ -3937,7 +3923,7 @@ export class Tui extends Service {
         const nextSelection = selectionFor(next)
         selectionRef.current = nextSelection
         selectionRef.assembled = undefined
-        uiMode = modeForSession(next.session, resolveDefaultMode())
+        uiMode = modeForSession(ctx.sessionProjections.stateOf(next.session, 'agentPreset'), resolveDefaultMode())
         offModelSelection = installModelSelection(next.ctx, selectionRef)
         const editorText = editor.getText()
         const textWithoutImages = imagePasteDraft.discardFrom(editorText)
@@ -4059,7 +4045,7 @@ export class Tui extends Service {
         })
         // `/new` should continue the current session's permission instead of
         // falling back to the global startup default.
-        const currentPermission = ctx.permissionPresets.current(current.session.events)
+        const currentPermission = ctx.permissionPresets.current(current.session)
         if (currentPermission !== 'custom') {
           try {
             ctx.permissionPresets.set(handle.agent.session, currentPermission)
@@ -4112,7 +4098,9 @@ export class Tui extends Service {
           signal: controller.signal,
           setup: presets === undefined ? undefined : async (agentCtx) => {
             const resumed = agentCtx.agent
-            const recorded = resumed === undefined ? undefined : resolveSessionPreset(resumed.session)
+            const recorded = resumed === undefined
+              ? undefined
+              : ctx.sessionProjections.stateOf(resumed.session, 'agentPreset') ?? undefined
             if (recorded !== undefined) await presets.mount(agentCtx, recorded)
           },
         })

@@ -8,7 +8,7 @@
 
 ## 已有上游能力
 
-当前 dsh `0.1.1-rc.2` 已提供：
+当前 dsh `0.1.2-alpha.2` 已提供：
 
 - `@deepseek-ai/dsh-jobs`：`ctx.jobs` 抽象服务。
 - `@deepseek-ai/dsh-jobs-local`：进程内任务 registry 实现，已由 dsh base profile 挂载。
