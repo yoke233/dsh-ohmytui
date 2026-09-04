@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionLogOffset, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { ConversationWriteGate, repairLegacyToolEvents } from '../src/session-persistence.ts'
 
 function event(seq: number, type: string): SessionEvent {
@@ -76,14 +76,15 @@ describe('conversation-gated persistence', () => {
       version: SESSION_FORMAT_VERSION,
       id,
       createdAt: 0,
-    })
+      isSeeded: false,
+    }, SessionLogOffset(0))
 
-    assert.equal(session.events.length, 3) // tool/call + tool/result + session/end-seed
-    const call = session.events[0] as { data: { callId: string; name: string; arguments: string } }
+    assert.equal(session.snapshotEvents().length, 3) // tool/call + tool/result + session/end-seed
+    const call = session.snapshotEvents()[0] as { data: { callId: string; name: string; arguments: string } }
     assert.equal(call.data.callId, 'call-0')
     assert.equal(call.data.name, 'unknown')
     assert.equal(call.data.arguments, '{}')
-    const result = session.events[1] as { data: { message: { source: { callId: string }; content: [{ toolCallId: string }] } } }
+    const result = session.snapshotEvents()[1] as { data: { message: { source: { callId: string }; content: [{ toolCallId: string }] } } }
     assert.equal(result.data.message.source.callId, 'call-0')
     assert.equal(result.data.message.content[0].toolCallId, 'call-0')
   })

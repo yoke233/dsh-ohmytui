@@ -9,6 +9,7 @@ function blankSession(idValue: string, agentPreset?: string): Session {
     version: SESSION_FORMAT_VERSION,
     id,
     createdAt: 0,
+    isSeeded: false,
     ...(agentPreset === undefined ? {} : { agentPreset }),
   })
 }
@@ -16,12 +17,12 @@ function blankSession(idValue: string, agentPreset?: string): Session {
 describe('session lifecycle', () => {
   it('keeps preset metadata out of a blank conversation check', () => {
     const session = blankSession('blank')
-    assert.equal(hasConversationData(session.events), false)
+    assert.equal(hasConversationData(session.snapshotEvents()), false)
 
     recordConversationPreset(session, 'standard', undefined)
-    assert.equal(session.events.length, 1)
-    assert.equal(session.events[0]?.type, 'agent-preset/selected')
-    assert.equal(hasConversationData(session.events), false)
+    assert.equal(session.snapshotEvents().length, 1)
+    assert.equal(session.snapshotEvents()[0]?.type, 'agent-preset/selected')
+    assert.equal(hasConversationData(session.snapshotEvents()), false)
 
     assert.equal(hasConversationData([{ type: 'user/message' } as SessionEvent]), true)
   })
@@ -74,8 +75,9 @@ describe('session lifecycle', () => {
         status: 'idle',
         options: { provider: 'task' },
         session: {
-          header: { id: secondId, parentSession: parentId, origin: 'subagent', createdAt: 2, seedLength: 1 },
-          events: [
+          header: { id: secondId, parentSession: parentId, origin: 'subagent', createdAt: 2, isSeeded: true },
+          inheritedEventCount: 1,
+          snapshotEvents: () => [
             { type: 'subagent/descriptor', data: { label: 'seed-label', provider: 'old', mode: 'one-shot' } },
             { type: 'subagent/descriptor', data: { label: 'review', mode: 'continuable' } },
           ],
@@ -86,15 +88,20 @@ describe('session lifecycle', () => {
         status: 'running',
         options: { provider: 'research' },
         session: {
-          header: { id: firstId, parentSession: parentId, origin: 'subagent', createdAt: 1, seedLength: 0 },
-          events: [{ type: 'subagent/descriptor', data: { label: 'research', mode: 'one-shot' } }],
+          header: { id: firstId, parentSession: parentId, origin: 'subagent', createdAt: 1, isSeeded: false },
+          inheritedEventCount: 0,
+          snapshotEvents: () => [{ type: 'subagent/descriptor', data: { label: 'research', mode: 'one-shot' } }],
         },
       },
       {
         id: SessionId('unrelated'),
         status: 'running',
         options: {},
-        session: { header: { id: SessionId('unrelated'), createdAt: 0 }, events: [] },
+        session: {
+          header: { id: SessionId('unrelated'), createdAt: 0, isSeeded: false },
+          inheritedEventCount: 0,
+          snapshotEvents: () => [],
+        },
       },
     ]
 
@@ -119,8 +126,9 @@ describe('session lifecycle', () => {
       },
     })
     const session = {
-      header: { id: childId, parentSession: parentId, origin: 'subagent', createdAt: 1, seedLength: 0 },
-      events,
+      header: { id: childId, parentSession: parentId, origin: 'subagent', createdAt: 1, isSeeded: false },
+      inheritedEventCount: 0,
+      snapshotEvents: () => events,
     }
     const agent = {
       id: childId,
@@ -153,14 +161,14 @@ describe('session lifecycle', () => {
   it('does not append when the creation header already records the preset', () => {
     const session = blankSession('header-preset', 'minimal')
     recordConversationPreset(session, 'minimal', 'minimal')
-    assert.equal(session.events.length, 0)
+    assert.equal(session.snapshotEvents().length, 0)
   })
 
   it('records one latest selection when a blank session changes preset', () => {
     const session = blankSession('switched-preset', 'standard')
     recordConversationPreset(session, 'minimal', 'standard')
     recordConversationPreset(session, 'minimal', 'minimal')
-    assert.equal(session.events.length, 1)
-    assert.deepEqual(session.events[0]?.data, { agentPreset: 'minimal' })
+    assert.equal(session.snapshotEvents().length, 1)
+    assert.deepEqual(session.snapshotEvents()[0]?.data, { agentPreset: 'minimal' })
   })
 })

@@ -1167,7 +1167,7 @@ export class Tui extends Service {
           if (reason.kind === 'error') {
             const text = t('noticeTurnFailed', {
               code: displayErrorCode(reason.error.code),
-              attempt: requestAttemptForTurn(agent?.session.events ?? [event], event.data.turn),
+              attempt: requestAttemptForTurn(agent?.session.snapshotEvents() ?? [event], event.data.turn),
               error: reason.error.message,
             })
             chat.addChild(new ErrorMessageComponent(
@@ -1206,7 +1206,7 @@ export class Tui extends Service {
       chat.clear()
       if (header !== undefined) chat.addChild(header)
       chat.addChild(new TranscriptFoldNoticeComponent(() => transcriptStart, palette))
-      const events = agent!.session.events
+      const events = agent!.session.snapshotEvents()
       const generation = ++transcriptBuildGeneration
       let index = Math.max(0, start)
       const chunkSize = 200
@@ -1214,7 +1214,7 @@ export class Tui extends Service {
         // Drop stale work if a newer window build started or the active
         // session changed while this chunked rebuild was still running.
         if (generation !== transcriptBuildGeneration) return
-        if (agent === undefined || agent.session.events !== events) return
+        if (agent === undefined || agent.session.snapshotEvents() !== events) return
         const end = Math.min(index + chunkSize, events.length)
         for (; index < end; index++) {
           renderEvent(events[index]!, false, false, false)
@@ -1231,7 +1231,7 @@ export class Tui extends Service {
     }
 
     const rebuildTranscript = (): void => {
-      const events = agent!.session.events
+      const events = agent!.session.snapshotEvents()
       const view = foldSessionView(events)
       todoPanel.setTodos(view.todos)
       todoPanel.setGoal(view.goal)
@@ -1309,7 +1309,7 @@ export class Tui extends Service {
     }
 
     const latestCompactionError = (): string | undefined => {
-      const events = agent?.session.events
+      const events = agent?.session.snapshotEvents()
       if (events === undefined) return undefined
       for (let index = events.length - 1; index >= 0; index--) {
         const event = events[index]!
@@ -1402,7 +1402,7 @@ export class Tui extends Service {
             capacity = info.context?.contextWindow ?? capacity
           }
           const snapshot = buildContextUsageSnapshot(
-            current.session.events,
+            current.session.snapshotEvents(),
             measurement.nodes,
             measurement.totalTokens,
             capacity,
@@ -1494,7 +1494,7 @@ export class Tui extends Service {
             args: nextGenerationArgs(
               ctx.get('cmdlineArgs')?.get() ?? [],
               String(current.session.header.id),
-              hasConversationData(current.session.events) ? '--resume' : '--session',
+              hasConversationData(current.session.snapshotEvents()) ? '--resume' : '--session',
             ),
           })
         } catch (error: unknown) {
@@ -1625,7 +1625,7 @@ export class Tui extends Service {
         return
       }
       if (line === '/copy' || line.startsWith('/copy ')) {
-        const text = latestAssistantText(current.session.events)
+        const text = latestAssistantText(current.session.snapshotEvents())
         if (text === undefined) {
           appendNotice(t('noticeCopyEmpty'), 'warning')
         } else {
@@ -1635,11 +1635,11 @@ export class Tui extends Service {
         return
       }
       if (line === '/details' || line.startsWith('/details ')) {
-        const folded = foldSessionTitle(current.session.events)
+        const folded = foldSessionTitle(current.session.snapshotEvents())
         const model = handles.selectionRef?.current?.model ?? current.options.model
         let inputTokens = 0
         let outputTokens = 0
-        for (const event of current.session.events) {
+        for (const event of current.session.snapshotEvents()) {
           if (event.type === 'assistant/message' && event.data.usage !== undefined) {
             inputTokens += event.data.usage.inputTokens
             outputTokens += event.data.usage.outputTokens
@@ -1696,7 +1696,7 @@ export class Tui extends Service {
         // Swapping the composition mid-conversation would leave logged tool
         // calls the new preset cannot make; the official roster only allows
         // switching while the session is blank.
-        const produced = hasConversationData(current.session.events)
+        const produced = hasConversationData(current.session.snapshotEvents())
         if (produced) {
           appendNotice(t('noticeModeNotBlank'), 'warning')
           return
@@ -3163,7 +3163,7 @@ export class Tui extends Service {
           refreshPendingInput()
         }
         const sessionTitle = ctx.get('sessionTitle')
-        if (sessionTitle !== undefined && foldSessionTitle(target.session.events) === undefined) {
+        if (sessionTitle !== undefined && foldSessionTitle(target.session.snapshotEvents()) === undefined) {
           void sessionTitle.refresh(target.session).catch(() => undefined)
         }
       } catch (error: unknown) {
@@ -3224,7 +3224,7 @@ export class Tui extends Service {
 
       const refreshTitle = (): void => {
         const sessionTitle = ctx.get('sessionTitle')
-        if (sessionTitle !== undefined && foldSessionTitle(current.session.events) === undefined) {
+        if (sessionTitle !== undefined && foldSessionTitle(current.session.snapshotEvents()) === undefined) {
           void sessionTitle.refresh(current.session).catch(() => undefined)
         }
       }
@@ -3499,7 +3499,7 @@ export class Tui extends Service {
         // in target.options. Prefer the persisted user default until conversation
         // data establishes a session-local route; resumed sessions are then
         // resolved from their request header below.
-        const fallback: ModelSelection = hasConversationData(target.session.events)
+        const fallback: ModelSelection = hasConversationData(target.session.snapshotEvents())
           ? {
               provider: target.options.provider ?? configured.provider,
               model: target.options.model ?? configured.model,
@@ -3535,7 +3535,7 @@ export class Tui extends Service {
 
       const updateTitle = (): void => {
         const current = agent
-        const folded = current === undefined ? undefined : foldSessionTitle(current.session.events)
+        const folded = current === undefined ? undefined : foldSessionTitle(current.session.snapshotEvents())
         terminal.setTitle(folded === undefined ? resolved.title : `${folded.title} — ${resolved.title}`)
       }
 
@@ -3768,7 +3768,7 @@ export class Tui extends Service {
        */
       const pendingToolInput = (target: Agent, callId: ToolCallId | undefined): string | undefined => {
         if (callId === undefined) return undefined
-        const events = target.session.events
+        const events = target.session.snapshotEvents()
         for (let index = events.length - 1; index >= 0; index--) {
           const event = events[index]!
           if (event.type === 'tool/call' && event.data.callId === callId) {
@@ -3902,7 +3902,7 @@ export class Tui extends Service {
         const presets = ctx.agentPresets
         if (presets === undefined || presets.composedPreset(target.ctx) !== undefined) return
         const recorded = ctx.sessionProjections.stateOf(target.session, 'agentPreset') ?? undefined
-        if (recorded === undefined && hasConversationData(target.session.events)) return
+        if (recorded === undefined && hasConversationData(target.session.snapshotEvents())) return
         const wanted = recorded ?? uiMode
         try {
           await presets.mount(target.ctx, wanted)

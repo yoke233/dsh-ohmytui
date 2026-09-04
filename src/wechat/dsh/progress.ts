@@ -135,7 +135,7 @@ async function handleTurnEnd(agent: Agent, event: SessionEvent & { type: 'turn/e
 /** 提取某个 turn 内最后一条 assistant/message 的全部文本块（thinking 排除）。 */
 function extractFinalText(agent: Agent, turn: number): string {
   let text = ''
-  for (const event of agent.session.events) {
+  for (const event of agent.session.snapshotEvents()) {
     if (event.type !== 'assistant/message' || event.data.turn !== turn) continue
     const parts: string[] = []
     for (const block of event.data.message.content) {

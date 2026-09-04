@@ -58,8 +58,8 @@ const subagentDescriptorCursors = new WeakMap<Session, SubagentDescriptorCursor>
 
 /** Scan each live child session's append-only suffix once instead of once per event from every agent. */
 function liveSubagentDescriptor(session: Session): SessionSubagent | undefined {
-  const events = session.events
-  const suffixStart = session.header.seedLength ?? 0
+  const events = session.snapshotEvents()
+  const suffixStart = session.inheritedEventCount
   let cursor = subagentDescriptorCursors.get(session)
   if (cursor === undefined || cursor.nextIndex < suffixStart || cursor.nextIndex > events.length) {
     cursor = { nextIndex: suffixStart }
